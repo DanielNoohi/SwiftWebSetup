@@ -14,16 +14,5 @@ A blazing-fast Ubuntu web server setup script for developers and sysadmins.
 
 3. Install Useful Packages:
 
-- _`apache2`_
-- _`php`_
-- _`libapache2-mod-php`_
-- _`php-mysql`_
-- _`php-cli`_
-- _`php-common`_
-- _`php-curl`_
-- _`php-gd`_
-- _`php-json`_
-- _`php-mbstring`_
-- _`php-xml`_
-- _`php-zip`_
+_`apache2`_ _`php`_ _`libapache2-mod-php`_ _`php-mysql`_ _`php-cli`_ _`php-common`_ _`php-curl`_ _`php-gd`_ _`php-json`_ _`php-mbstring`_ _`php-xml`_ _`php-zip`_
 
