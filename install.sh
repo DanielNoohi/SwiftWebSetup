@@ -92,7 +92,7 @@ DB_PASSWORD=''
 # Prompt the user for input
 read -p "Enter the WordPress database name: " DB_NAME
 read -p "Enter the database username: " DB_USER
-read -s -p "Enter the database password: " DB_PASSWORD
+#read -s -p "Enter the database password: " DB_PASSWORD
 echo  # Add a newline after the password input for better formatting
 
 # Check if the user provided values
