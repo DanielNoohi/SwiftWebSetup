@@ -20,5 +20,5 @@ _`apache2`_ _`php`_ _`libapache2-mod-php`_ _`php-mysql`_ _`php-cli`_ _`php-commo
 #### **Tested on:** Ubuntu 18+, Debian 11+
 
 ```
-wget "https://raw.githubusercontent.com/DanielNoohi/SwiftWebSetup/main/install.sh" -O install.sh && chmod +x install.sh && bash install.sh
+wget "https://raw.githubusercontent.com/DanielNoohi/SwiftWebSetup/main/web-install.sh" -O web-install.sh && chmod +x web-install.sh && bash web-install.sh
 ```
