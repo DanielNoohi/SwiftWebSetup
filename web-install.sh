@@ -23,6 +23,11 @@ sudo apt install -y apache2 php libapache2-mod-php php-mysql php-cli php-common 
 
 sleep 1
 
+# System utilities
+    sudo apt -y install apt-utils bash-completion busybox ca-certificates cron curl gnupg2 locales lsb-release nano preload screen software-properties-common ufw unzip vim wget xxd zip
+
+sleep 1
+
 # Install MySQL
 #sudo apt-get install mysql-server -y
 
