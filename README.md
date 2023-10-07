@@ -22,3 +22,11 @@ _`apache2`_ _`php`_ _`libapache2-mod-php`_ _`php-mysql`_ _`php-cli`_ _`php-commo
 ```
 wget "https://raw.githubusercontent.com/DanielNoohi/SwiftWebSetup/main/web-install.sh" -O web-install.sh && chmod +x web-install.sh && bash web-install.sh
 ```
+
+
+## Docker - Lighting Fast Web Server Setup
+#### **Tested on:** Ubuntu 18+, Debian 11+
+
+```
+wget "https://raw.githubusercontent.com/DanielNoohi/SwiftWebSetup/main/docker-way.sh" -O docker-way.sh && chmod +x docker-way.sh && bash docker-way.sh
+```
