@@ -1,10 +1,13 @@
 #!/bin/bash
 
+# System utilities
+  sudo apt -y install apt-utils bash-completion busybox ca-certificates cron curl gnupg2 locales lsb-release nano preload screen software-properties-common ufw unzip vim wget xxd zip
+
 # Automated Ubuntu Docker Setup Script
-wget "https://raw.githubusercontent.com/DanielNoohi/ubuntu-server-docker-setup/main/docker-install.sh" -O docker-install.sh && chmod +x docker-install.sh && bash docker-install.sh
+  wget "https://raw.githubusercontent.com/DanielNoohi/ubuntu-server-docker-setup/main/docker-install.sh" -O docker-install.sh && chmod +x docker-install.sh && bash docker-install.sh
 
 # Ask the user for the domain name
-read -p "Enter your docker container name: " DOCKER_NAME
+  read -p "Enter your docker container name: " DOCKER_NAME
 
 docker run \
   --detach \
