@@ -78,6 +78,15 @@ check_root() {
 	fi
 }
 
+# True in CI even when sudo strips CI/GITHUB_ACTIONS from the environment.
+is_ci() {
+	[[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]] && return 0
+	[[ -n "${RUNNER_OS:-}" || -n "${RUNNER_NAME:-}" ]] && return 0
+	# GitHub-hosted Actions workspace layout
+	[[ -d /home/runner/work ]] && return 0
+	return 1
+}
+
 check_os() {
 	[[ -f /etc/os-release ]] || {
 		error "Cannot determine OS"
@@ -107,24 +116,25 @@ gen_password() {
 	local len=32
 	[[ $# -ge 1 ]] && len="$1"
 	local pass=""
+	# Alphanumeric only: safe in .env, SQL single-quoted strings, and shell.
 	if command -v python3 &>/dev/null; then
 		pass=$(
 			python3 - "$len" <<'PY'
 import secrets, string, sys
 n = int(sys.argv[1])
-alphabet = string.ascii_letters + string.digits + "!@#%^*_-+=<>~"
+alphabet = string.ascii_letters + string.digits
 print("".join(secrets.choice(alphabet) for _ in range(n)))
 PY
 		)
 	else
-		pass=$(tr -dc 'A-Za-z0-9!@#%^*_-+=<>~' </dev/urandom | head -c "$len")
+		pass=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$len")
 	fi
 	printf '%s' "$pass"
 }
 
 server_ip() {
 	# Prefer loopback in CI so verify curls a reachable address on the runner
-	if [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+	if is_ci; then
 		printf '%s' "127.0.0.1"
 		return 0
 	fi
@@ -314,7 +324,11 @@ save_credentials() {
 		echo "DB name: ${WP_DB_NAME}"
 		echo "DB user: ${WP_DB_USER}"
 		echo "DB pass: ${WP_DB_PASSWORD}"
-		echo "MariaDB root: ${MYSQL_ROOT_PASSWORD}"
+		if [[ "$mode" == "host" ]]; then
+			echo "MariaDB root: unix_socket (run: sudo mariadb) — generated token for records: ${MYSQL_ROOT_PASSWORD}"
+		else
+			echo "MariaDB root: ${MYSQL_ROOT_PASSWORD}"
+		fi
 		[[ -n "${EXTRA_CRED_LINES:-}" ]] && printf '%s\n' "${EXTRA_CRED_LINES}"
 	} >"${CREDENTIALS_FILE}"
 	chmod 600 "${CREDENTIALS_FILE}"

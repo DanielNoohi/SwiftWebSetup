@@ -139,7 +139,7 @@ wp_is_installed() {
 }
 
 configure_firewall() {
-	if [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+	if is_ci; then
 		info "CI environment detected — skipping UFW"
 		return 0
 	fi
@@ -272,9 +272,14 @@ place_wordpress_files() {
 }
 
 # MariaDB admin via local root socket (script runs as root on Ubuntu).
-# Avoid depending on PASSWORD() / plugin switches that break on CI images.
+# Keep unix_socket auth for root@localhost — ALTER USER ... IDENTIFIED BY breaks
+# subsequent passwordless socket logins and fails the install under set -e.
 mariadb_socket() {
-	mariadb --protocol=socket -u root
+	if command -v mariadb &>/dev/null; then
+		mariadb --protocol=socket -u root
+	else
+		mysql --protocol=socket -u root
+	fi
 }
 
 secure_mariadb_and_db() {
@@ -283,21 +288,19 @@ secure_mariadb_and_db() {
 		return 0
 	fi
 
-	info "Configuring MariaDB and WordPress database..."
+	info "Configuring MariaDB and WordPress database (unix_socket root)..."
 
-	# Best-effort root password for the credentials file; never abort install on this.
-	mariadb_socket <<SQL || warn "Could not set MariaDB root password (unix_socket may remain); continuing"
-ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}';
-FLUSH PRIVILEGES;
-SQL
-
-	mariadb_socket <<SQL
+	# Soften anonymous/test accounts; do not change root auth plugin.
+	mariadb_socket <<SQL || warn "MariaDB housekeeping statements had warnings; continuing"
 DELETE FROM mysql.user WHERE User='';
 DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost','127.0.0.1','::1');
 DROP DATABASE IF EXISTS test;
 FLUSH PRIVILEGES;
 SQL
 
+	# Credentials file still records a generated value; on Ubuntu, prefer:
+	#   sudo mariadb
+	# (unix_socket) rather than password login for system root.
 	if [[ "$FORCE" == true ]]; then
 		info "Force mode: DROP + recreate WordPress database ${WP_DB_NAME}"
 		mariadb_socket <<SQL
@@ -453,6 +456,7 @@ main() {
 	tune_php_for_wordpress
 
 	export DEBIAN_FRONTEND=noninteractive
+	export NEEDRESTART_MODE=a
 	# GitHub runners / some images ship MySQL — remove it so MariaDB can install cleanly
 	if dpkg -l mysql-server 2>/dev/null | grep -q '^ii'; then
 		warn "Removing conflicting mysql-server package..."
@@ -461,11 +465,12 @@ main() {
 		run_cmd apt-get autoremove -y || true
 	fi
 	run_cmd apt-get install -y mariadb-server
-	run_cmd systemctl enable mariadb
-	run_cmd systemctl start mariadb
-	[[ "$DRY_RUN" != true ]] && wait_for_active mariadb
-	# Give MariaDB a moment after start on slow CI disks
-	[[ "$DRY_RUN" != true ]] && sleep 2
+	run_cmd systemctl enable mariadb || run_cmd systemctl enable mysql || true
+	run_cmd systemctl start mariadb || run_cmd systemctl start mysql
+	if [[ "$DRY_RUN" != true ]]; then
+		wait_for_active mariadb 60 || wait_for_active mysql 60
+		sleep 2
+	fi
 
 	secure_mariadb_and_db
 	download_wordpress

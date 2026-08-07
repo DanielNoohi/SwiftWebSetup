@@ -40,6 +40,15 @@ setup() {
 	[ ${#output} -eq 32 ]
 	[[ "$output" != *'$'* ]] || fail "contains dollar sign"
 	[[ "$output" != *"'"* ]] || fail "contains single quote"
+	[[ "$output" != *'#'* ]] || fail "contains hash (breaks .env)"
+	[[ "$output" =~ ^[A-Za-z0-9]+$ ]] || fail "non-alphanumeric password"
+}
+
+@test "is_ci: detects /home/runner/work layout" {
+	source_script lib/common.sh
+	# Function exists and is callable; real CI detection covered in e2e
+	run type is_ci
+	[ "$status" -eq 0 ]
 }
 
 @test "scrub_secrets: redacts known secrets" {

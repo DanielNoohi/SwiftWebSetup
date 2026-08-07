@@ -37,7 +37,7 @@ WORDPRESS_PORT="${WORDPRESS_PORT:-80}"
 COMPOSE_DIR="/opt/${PROJECT_NAME}"
 
 WP_IMAGE="${WP_IMAGE:-wordpress:php8.3-apache}"
-WP_CLI_IMAGE="${WP_CLI_IMAGE:-wordpress:cli-php8.3}"
+WP_CLI_IMAGE="${WP_CLI_IMAGE:-wordpress:cli}"
 DB_IMAGE="${DB_IMAGE:-mariadb:10.11}"
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
@@ -165,7 +165,8 @@ services:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s
       timeout: 5s
-      retries: 12
+      retries: 30
+      start_period: 20s
 
   wordpress:
     image: ${WP_IMAGE}
@@ -191,14 +192,21 @@ services:
     container_name: ${PROJECT_NAME}-wpcli
     restart: "no"
     user: "33:33"
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: \${WP_DB_NAME}
+      WORDPRESS_DB_USER: \${WP_DB_USER}
+      WORDPRESS_DB_PASSWORD: \${WP_DB_PASSWORD}
     volumes:
       - wp_data:/var/www/html
     networks:
       - ${PROJECT_NAME}_net
     depends_on:
-      - db
-      - wordpress
-    entrypoint: ["/bin/sh", "-c", "sleep infinity"]
+      db:
+        condition: service_healthy
+      wordpress:
+        condition: service_started
+    entrypoint: ["sleep", "infinity"]
 
 volumes:
   db_data:
@@ -285,7 +293,7 @@ verify_site() {
 }
 
 configure_firewall() {
-	if [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+	if is_ci; then
 		info "CI environment detected — skipping UFW"
 		return 0
 	fi

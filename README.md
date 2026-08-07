@@ -1,8 +1,8 @@
 # SwiftWebSetup
 
-Production WordPress bootstrap for Ubuntu VPS.
+One-command production WordPress bootstrap for Ubuntu VPS.
 
-One command installs official WordPress from [wordpress.org](https://wordpress.org), completes setup with WP-CLI, and leaves a verified live site—not a default web-server page and not an unfinished install wizard.
+Installs official WordPress from [wordpress.org](https://wordpress.org), completes setup with WP-CLI, and verifies a live site—not a default web-server page, and not an unfinished install wizard.
 
 ---
 
@@ -92,7 +92,7 @@ sudo bash /tmp/swiftweb-install.sh --docker --unattended --port 8080
 
 `SITE_TITLE`, `ADMIN_USER`, `ADMIN_PASSWORD`, `ADMIN_EMAIL`, `DOMAIN`, `FORCE`, `WP_DB_NAME`, `WP_DB_USER`, `WP_DB_PASSWORD`, `MYSQL_ROOT_PASSWORD`
 
-Unset passwords are generated automatically (32 characters) and stored in the credentials file after a successful install.
+Unset passwords are generated automatically (alphanumeric, 32 characters) and stored in the credentials file after a successful install.
 
 ---
 
@@ -107,7 +107,9 @@ Unset passwords are generated automatically (32 characters) and stored in the cr
 | `/root/swiftwebsetup-credentials.txt` | Host install |
 | `/root/swiftwebsetup-docker-credentials.txt` | Docker install |
 
-**Versions.** The host path always fetches current WordPress from wordpress.org. Docker defaults to `wordpress:php8.3-apache` and matching CLI images (`WP_IMAGE`, `WP_CLI_IMAGE`, `DB_IMAGE` override).
+On the host path, MariaDB system root uses Ubuntu’s `unix_socket` auth (`sudo mariadb`). The WordPress database user is password-authenticated.
+
+**Versions.** The host path always fetches current WordPress from wordpress.org. Docker defaults to `wordpress:php8.3-apache` (`WP_IMAGE`, `WP_CLI_IMAGE`, `DB_IMAGE` override).
 
 **TLS on Docker.** Certbot is not applied inside the Compose stack. Terminate TLS at a reverse proxy, or use the host installer with `--ssl`.
 
