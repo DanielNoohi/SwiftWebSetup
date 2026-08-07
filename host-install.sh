@@ -291,6 +291,8 @@ place_wordpress_files() {
 	fi
 	run_cmd mkdir -p "$WP_PATH"
 	run_cmd cp -a /tmp/swiftweb-wp/wordpress/. "$WP_PATH/"
+	# Free extract tree ASAP (helps CI runners)
+	rm -rf /tmp/swiftweb-wp 2>/dev/null || true
 	clear_default_indexes "$WP_PATH"
 	[[ -f "$WP_PATH/index.php" ]] || {
 		error "WordPress index.php missing after copy"
@@ -548,8 +550,8 @@ EOF
 	if [[ "$DRY_RUN" != true ]]; then
 		run_cmd cp "$WP_PATH/wp-config-sample.php" "$WP_PATH/wp-config.php"
 		run_cmd chown -R www-data:www-data "$WP_PATH"
-		run_cmd find "$WP_PATH" -type d -exec chmod 755 {} \;
-		run_cmd find "$WP_PATH" -type f -exec chmod 644 {} \;
+		# chmod -R is far cheaper than find -exec on large WP trees (CI OOM risk)
+		run_cmd chmod -R u=rwX,g=rX,o=rX "$WP_PATH"
 
 		run_wp config set DB_NAME "$WP_DB_NAME" --skip-check
 		run_wp config set DB_USER "$WP_DB_USER" --skip-check

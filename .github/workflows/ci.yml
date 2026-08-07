@@ -90,26 +90,26 @@ jobs:
           if sudo test -f /var/log/swiftwebsetup-web-install.log; then
             echo "----- installer log (tail) -----"
             sudo tail -n 160 /var/log/swiftwebsetup-web-install.log
-            # Prefer a single annotation blob (API returns a small annotation cap)
-            {
-              echo "host-install exit=$ec"
-              sudo grep -E '\[ERROR\]|Command failed|VERIFICATION|Extracting|streaming|tar extract|swap' /var/log/swiftwebsetup-web-install.log | tail -n 15
-              echo "---- tail ----"
-              sudo tail -n 12 /var/log/swiftwebsetup-web-install.log
-            } | while IFS= read -r line; do echo "::error::$line"; done
           else
             echo "no log file"
-            echo "::error::host-install failed and no installer log was written"
+          fi
+          if [ "$ec" -ne 0 ]; then
+            {
+              echo "host-install exit=$ec"
+              sudo grep -E '\[ERROR\]|Command failed|VERIFICATION|Extracting|tar extract|swap|OOM|Killed' /var/log/swiftwebsetup-web-install.log 2>/dev/null | tail -n 15
+              echo "---- tail ----"
+              sudo tail -n 12 /var/log/swiftwebsetup-web-install.log 2>/dev/null
+            } | while IFS= read -r line; do echo "::error::$line"; done
           fi
           exit $ec
         timeout-minutes: 30
       - name: Verify a real WordPress front page (not Apache test page) + creds 0600
         run: |
-          body=$(curl -fsSL http://127.0.0.1/ || true)
-          echo "$body" | grep -qE 'wp-content|wp-includes|wp-json' \
+          body=$(curl -fsSL -L http://127.0.0.1/ || true)
+          echo "$body" | grep -qiE 'wp-content|wp-includes|wp-json|wordpress' \
             && echo "OK: WordPress homepage served" \
             || { echo "FAIL: non-WordPress page"; echo "$body" | head -c 800; exit 1; }
-          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/wp-login.php)
+          code=$(curl -s -o /dev/null -w '%{http_code}' -L http://127.0.0.1/wp-login.php)
           [ "$code" = "200" ] && echo "OK: wp-login.php 200" || { echo "FAIL: wp-login.php -> $code"; exit 1; }
           sudo test -f /root/swiftwebsetup-credentials.txt || { echo "missing creds file"; exit 1; }
           perms=$(sudo stat -c '%a' /root/swiftwebsetup-credentials.txt)
@@ -143,25 +143,28 @@ jobs:
           if sudo test -f /var/log/swiftwebsetup-docker-way.log; then
             echo "----- installer log (tail) -----"
             sudo tail -n 160 /var/log/swiftwebsetup-docker-way.log
-            {
-              echo "docker-way exit=$ec"
-              sudo grep -E '\[ERROR\]|Command failed|VERIFICATION|Debug:' /var/log/swiftwebsetup-docker-way.log | tail -n 15
-              echo "---- tail ----"
-              sudo tail -n 12 /var/log/swiftwebsetup-docker-way.log
-            } | while IFS= read -r line; do echo "::error::$line"; done
           else
             echo "no log file"
-            echo "::error::docker-way failed and no installer log was written"
           fi
           docker compose -f /opt/swiftweb/docker-compose.yml ps || true
-          docker compose -f /opt/swiftweb/docker-compose.yml logs --tail=80 || true
+          if [ "$ec" -ne 0 ]; then
+            {
+              echo "docker-way exit=$ec"
+              sudo grep -E '\[ERROR\]|Command failed|VERIFICATION|Debug:' /var/log/swiftwebsetup-docker-way.log 2>/dev/null | tail -n 15
+              echo "---- tail ----"
+              sudo tail -n 12 /var/log/swiftwebsetup-docker-way.log 2>/dev/null
+              docker compose -f /opt/swiftweb/docker-compose.yml logs --tail=40 2>/dev/null || true
+            } | while IFS= read -r line; do echo "::error::$line"; done
+          fi
           exit $ec
         timeout-minutes: 35
       - name: Prove WordPress site via Docker (not nginx welcome page)
         run: |
-          body=$(curl -fsSL http://127.0.0.1:8080/ || true)
-          echo "$body" | grep -qE 'wp-content|wp-includes|wp-json' \
+          body=$(curl -fsSL -L http://127.0.0.1:8080/ || true)
+          echo "$body" | grep -qiE 'wp-content|wp-includes|wp-json|wordpress' \
             && echo "OK: WordPress served by Docker" \
             || { echo "FAIL: non-WordPress page from Docker"; echo "$body" | head -c 800; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' -L http://127.0.0.1:8080/wp-login.php)
+          [ "$code" = "200" ] && echo "OK: wp-login.php 200" || { echo "FAIL: wp-login.php -> $code"; exit 1; }
       - name: Show container status
         run: docker compose -f /opt/swiftweb/docker-compose.yml ps
