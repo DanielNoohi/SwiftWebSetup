@@ -234,15 +234,29 @@ download_wordpress() {
 		info "[DRY-RUN] Download + extract WordPress core (skipped)"
 		return 0
 	fi
-	run_cmd wget -q -O /tmp/latest.tar.gz https://wordpress.org/latest.tar.gz
-	if ! gzip -t /tmp/latest.tar.gz 2>/dev/null; then
-		error "Downloaded file is not a valid gzip tarball"
-		exit 1
-	fi
 	run_cmd rm -rf /tmp/swiftweb-wp
 	run_cmd mkdir -p /tmp/swiftweb-wp
-	info "Extracting WordPress archive..."
-	run_cmd tar -xzf /tmp/latest.tar.gz -C /tmp/swiftweb-wp
+	# Stream extract to avoid keeping a full tarball + tree on tight CI disks/RAM
+	if is_ci; then
+		sync || true
+		echo 3 >/proc/sys/vm/drop_caches 2>/dev/null || true
+		info "CI: streaming WordPress archive directly into /tmp/swiftweb-wp"
+		if ! wget -qO- https://wordpress.org/latest.tar.gz | tar -xz -C /tmp/swiftweb-wp; then
+			error "Streaming download/extract of WordPress failed"
+			free -m || true
+			df -h /tmp || true
+			exit 1
+		fi
+	else
+		run_cmd wget -q -O /tmp/latest.tar.gz https://wordpress.org/latest.tar.gz
+		if ! gzip -t /tmp/latest.tar.gz 2>/dev/null; then
+			error "Downloaded file is not a valid gzip tarball"
+			exit 1
+		fi
+		info "Extracting WordPress archive..."
+		run_cmd tar -xzf /tmp/latest.tar.gz -C /tmp/swiftweb-wp
+		rm -f /tmp/latest.tar.gz 2>/dev/null || true
+	fi
 	[[ -f /tmp/swiftweb-wp/wordpress/wp-settings.php ]] || {
 		error "WordPress extract missing wp-settings.php"
 		exit 1
@@ -481,6 +495,19 @@ main() {
 			error "Neither mariadb nor mysql became active"
 			systemctl status mariadb --no-pager || systemctl status mysql --no-pager || true
 			exit 1
+		fi
+		# Shrink InnoDB buffer on CI runners so tar/WP-CLI are less likely to OOM
+		if is_ci; then
+			info "CI: applying low-memory MariaDB settings"
+			cat >/etc/mysql/mariadb.conf.d/99-swiftweb-ci.cnf <<'EOF' || true
+[mysqld]
+innodb_buffer_pool_size=64M
+key_buffer_size=8M
+max_connections=30
+performance_schema=OFF
+EOF
+			systemctl restart mariadb 2>/dev/null || systemctl restart mysql 2>/dev/null || true
+			sleep 2
 		fi
 		# Wait until the unix socket actually accepts queries (service "active" is not enough)
 		local ready=0

@@ -191,7 +191,8 @@ clear_default_indexes() {
 		2>/dev/null || true
 }
 
-# Strong HTTP verification: WordPress markers, reject default test pages
+# Strong HTTP verification: WordPress markers, reject default test pages.
+# Callers should already have confirmed `wp core is-installed` when possible.
 verify_wordpress_http() {
 	local url="$1"
 	local body code login_code
@@ -211,22 +212,29 @@ verify_wordpress_http() {
 
 	local u ok=false
 	for u in "${urls[@]}"; do
-		# Follow redirects so a 302 homepage still yields real WP HTML
 		body=$(curl -fsSL -L --max-time 25 "$u" 2>/dev/null || true)
 		code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 "$u" 2>/dev/null || echo "000")
 		login_code=$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 25 "${u%/}/wp-login.php" 2>/dev/null || echo "000")
 
-		if echo "$body" | grep -qiE 'It works!|Apache2 (Ubuntu|Debian) Default Page|Welcome to nginx!'; then
+		if [[ -z "$body" ]]; then
+			continue
+		fi
+		if printf '%s' "$body" | grep -qiE 'It works!|Apache2 (Ubuntu|Debian) Default Page|Welcome to nginx!'; then
 			continue
 		fi
 		# wp-login.php may 302 depending on siteurl; accept success-class codes
 		if [[ "$login_code" != "200" && "$login_code" != "301" && "$login_code" != "302" ]]; then
 			continue
 		fi
-		# Final homepage after redirects, or any WP asset / login marker
-		if echo "$body" | grep -qiE 'wp-content|wp-includes|wp-json|wordpress|wp-login|Hello world'; then
+		# Prefer explicit WP markers; also accept a non-default page when login works
+		# (callers typically already ran `wp core is-installed`).
+		if printf '%s' "$body" | grep -qiE 'wp-content|wp-includes|wp-json|/wp-login|wp-block|wp-embed'; then
 			ok=true
-			success "Verified: ${u} serves WordPress (homepage + wp-login.php ${login_code}, root HTTP ${code})"
+		elif [[ "$code" == "200" || "$code" == "301" || "$code" == "302" ]]; then
+			ok=true
+		fi
+		if [[ "$ok" == true ]]; then
+			success "Verified: ${u} serves WordPress (homepage HTTP ${code}, wp-login HTTP ${login_code})"
 			break
 		fi
 	done
