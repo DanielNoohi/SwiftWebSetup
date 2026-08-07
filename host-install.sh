@@ -469,7 +469,22 @@ main() {
 	run_cmd systemctl start mariadb || run_cmd systemctl start mysql
 	if [[ "$DRY_RUN" != true ]]; then
 		wait_for_active mariadb 60 || wait_for_active mysql 60
-		sleep 2
+		# Wait until the unix socket actually accepts queries (service "active" is not enough)
+		local ready=0 i=0
+		for ((i = 0; i < 60; i++)); do
+			if mariadb_socket <<<"SELECT 1;" >/dev/null 2>&1; then
+				ready=1
+				break
+			fi
+			sleep 1
+		done
+		[[ "$ready" -eq 1 ]] || {
+			error "MariaDB is running but not accepting socket connections"
+			systemctl status mariadb --no-pager || systemctl status mysql --no-pager || true
+			journalctl -u mariadb -n 40 --no-pager || journalctl -u mysql -n 40 --no-pager || true
+			exit 1
+		}
+		success "MariaDB accepting socket connections"
 	fi
 
 	secure_mariadb_and_db

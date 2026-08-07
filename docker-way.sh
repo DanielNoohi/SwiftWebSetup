@@ -37,7 +37,7 @@ WORDPRESS_PORT="${WORDPRESS_PORT:-80}"
 COMPOSE_DIR="/opt/${PROJECT_NAME}"
 
 WP_IMAGE="${WP_IMAGE:-wordpress:php8.3-apache}"
-WP_CLI_IMAGE="${WP_CLI_IMAGE:-wordpress:cli}"
+WP_CLI_IMAGE="${WP_CLI_IMAGE:-wordpress:cli-php8.3}"
 DB_IMAGE="${DB_IMAGE:-mariadb:10.11}"
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
@@ -108,6 +108,20 @@ fi
 trap 'install_fail_hint' ERR
 
 install_docker() {
+	# GitHub-hosted runners already ship Docker + Compose — never reinstall there.
+	if is_ci; then
+		if ! command -v docker &>/dev/null; then
+			error "Docker is required in CI but was not found"
+			return 1
+		fi
+		if ! docker compose version &>/dev/null; then
+			error "Docker Compose plugin is required in CI but was not found"
+			return 1
+		fi
+		info "CI environment — using preinstalled Docker + Compose"
+		return 0
+	fi
+
 	if command -v docker &>/dev/null && docker compose version &>/dev/null; then
 		info "Docker + Compose plugin already installed"
 		return 0
@@ -206,7 +220,7 @@ services:
         condition: service_healthy
       wordpress:
         condition: service_started
-    entrypoint: ["sleep", "infinity"]
+    entrypoint: ["tail", "-f", "/dev/null"]
 
 volumes:
   db_data:

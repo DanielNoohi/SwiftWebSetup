@@ -87,7 +87,17 @@ jobs:
             bash host-install.sh --unattended
           ec=$?
           echo "host-install exit code: $ec"
-          sudo test -f /var/log/swiftwebsetup-web-install.log && sudo tail -n 160 /var/log/swiftwebsetup-web-install.log || echo "no log file"
+          if sudo test -f /var/log/swiftwebsetup-web-install.log; then
+            echo "----- installer log (tail) -----"
+            sudo tail -n 160 /var/log/swiftwebsetup-web-install.log
+            # Surface last errors as Actions annotations (visible without log download auth)
+            sudo grep -E '\[ERROR\]|Command failed' /var/log/swiftwebsetup-web-install.log \
+              | tail -n 8 \
+              | while IFS= read -r line; do echo "::error::${line}"; done
+          else
+            echo "no log file"
+            echo "::error::host-install failed and no installer log was written"
+          fi
           exit $ec
         timeout-minutes: 30
       - name: Verify a real WordPress front page (not Apache test page) + creds 0600
@@ -127,7 +137,16 @@ jobs:
             bash docker-way.sh --unattended --port 8080
           ec=$?
           echo "docker-way exit code: $ec"
-          sudo test -f /var/log/swiftwebsetup-docker-way.log && sudo tail -n 160 /var/log/swiftwebsetup-docker-way.log || echo "no log file"
+          if sudo test -f /var/log/swiftwebsetup-docker-way.log; then
+            echo "----- installer log (tail) -----"
+            sudo tail -n 160 /var/log/swiftwebsetup-docker-way.log
+            sudo grep -E '\[ERROR\]|Command failed' /var/log/swiftwebsetup-docker-way.log \
+              | tail -n 8 \
+              | while IFS= read -r line; do echo "::error::${line}"; done
+          else
+            echo "no log file"
+            echo "::error::docker-way failed and no installer log was written"
+          fi
           docker compose -f /opt/swiftweb/docker-compose.yml ps || true
           docker compose -f /opt/swiftweb/docker-compose.yml logs --tail=80 || true
           exit $ec
