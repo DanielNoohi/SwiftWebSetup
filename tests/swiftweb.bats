@@ -131,5 +131,5 @@ setup() {
 @test "install.sh: forwards child installer (not stub echo)" {
 	grep -q 'web-install.sh' "$REPO_ROOT/install.sh"
 	grep -q 'docker-way.sh' "$REPO_ROOT/install.sh"
-	! grep -q 'echo "LAMP setup"' "$REPO_ROOT/install.sh"
+	! grep -qiE 'echo ".*(LAMP|lamp) setup"' "$REPO_ROOT/install.sh"
 }

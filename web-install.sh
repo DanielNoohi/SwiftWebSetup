@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # SwiftWebSetup - web-install.sh
-# Host LAMP + official WordPress (fully installed via WP-CLI as www-data)
+# Native VPS install: Apache + PHP + MariaDB + official WordPress (WP-CLI as www-data)
 #
 # Usage: sudo bash web-install.sh [--dry-run] [--unattended] [--force] [--domain D]
 #          [--title T] [--admin U] [--email E] [--ssl]
@@ -335,7 +335,7 @@ main() {
 	credential "DB: db=$WP_DB_NAME user=$WP_DB_USER pass=$WP_DB_PASSWORD"
 	credential "MariaDB root: $MYSQL_ROOT_PASSWORD"
 
-	info "apt update + install LAMP packages..."
+	info "apt update + install Apache, PHP, MariaDB, and tools..."
 	run_cmd apt-get update
 	run_cmd apt-get install -y apache2 php libapache2-mod-php php-mysql php-cli php-common \
 		php-curl php-gd php-mbstring php-xml php-zip php-opcache curl wget ca-certificates ufw sudo

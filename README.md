@@ -1,10 +1,10 @@
 # SwiftWebSetup
 
-One-command raw WordPress production bootstrap for Ubuntu — official WordPress from wordpress.org, **fully installed and ready to use**. No test pages, no "It works!", no install wizard left for you to click through.
+One-command **production WordPress** bootstrap for an Ubuntu VPS — official WordPress from wordpress.org, fully installed and ready to use. Not a demo, not a classroom stack, not an install wizard left for you to finish.
 
 ## What you get
 
-A **fully fledged WordPress website** — not a demo:
+A **fully fledged WordPress website** on your server:
 
 - Official WordPress core from https://wordpress.org/latest.tar.gz (raw, unmodified, bundled default themes kept)
 - MariaDB database + least-privilege dedicated DB user
@@ -17,6 +17,13 @@ A **fully fledged WordPress website** — not a demo:
 - Shared helpers in `lib/common.sh`
 
 Visiting `http://SERVER_IP` shows the WordPress front page. Done.
+
+## Two ways to deploy (same outcome)
+
+| Mode | Script | When to use |
+|------|--------|-------------|
+| **Host (default)** | `web-install.sh` | Native install on the VPS: Apache + PHP + MariaDB + WordPress |
+| **Docker** (`--docker`) | `docker-way.sh` | Same WordPress site in containers |
 
 ## One-command setup
 
@@ -37,17 +44,17 @@ sudo bash /tmp/swiftweb-install.sh
 
 | Flag | Effect |
 |------|--------|
-| `--docker` | Deploy WordPress + MariaDB as Docker containers (host LAMP by default) |
+| `--docker` | Deploy with Docker (default: native host install on the VPS) |
 | `--unattended` | Non-interactive (all inputs from env vars) |
-| `--force` | **LAMP:** wipe web root (timestamped backup) **and DROP/recreate** the WordPress DB, then reinstall. **Docker:** `docker compose down -v` (wipe volumes) and reinstall |
+| `--force` | **Host:** wipe web root (timestamped backup) **and DROP/recreate** the WordPress DB, then reinstall. **Docker:** `docker compose down -v` (wipe volumes) and reinstall |
 | `--domain D` | Set site domain (default: server IP) |
 | `--title T` | WordPress site title |
 | `--admin U` | Admin username |
 | `--email E` | Admin email |
 | `--name N` | (docker) project/container prefix (default: `swiftweb`) |
-| `--port P` | (docker) host port for WordPress (default: `80`) |
+| `--port P` | (docker) published port for WordPress (default: `80`) |
 | `--dry-run` | Preview changes without executing |
-| `--ssl` | (LAMP) Enable HTTPS via certbot (requires `--domain`) |
+| `--ssl` | (host) Enable HTTPS via certbot (requires `--domain`) |
 
 ### Environment variables (unattended)
 
@@ -56,9 +63,9 @@ sudo bash /tmp/swiftweb-install.sh
 ## Re-runs are safe (idempotent)
 
 - Without `--force`, if WordPress is already installed the script **backs off and exits 0** — it does not wipe a live site.
-- `--force` performs a **full** reinstall: files + database (LAMP) or compose volumes (Docker).
+- `--force` performs a **full** reinstall: files + database (host) or compose volumes (Docker).
 
-## What it installs (LAMP — `web-install.sh`)
+## What the host path installs (`web-install.sh`)
 
 1. Apache2, PHP 8.x + extensions, MariaDB, python3, WP-CLI  
 2. MariaDB hardened (`IDENTIFIED BY`), WP DB + user; on `--force` the WP database is dropped and recreated  
@@ -72,7 +79,7 @@ sudo bash /tmp/swiftweb-install.sh
 - Images: `wordpress:php8.3-apache` + matching `wordpress:cli-php8.3` + `mariadb:10.11` (override with `WP_IMAGE` / `WP_CLI_IMAGE` / `DB_IMAGE`)
 - WP-CLI runs in the `wpcli` service on the shared `wp_data` volume
 - `--force` runs `docker compose down -v` then recreates and reinstalls
-- UFW: OpenSSH + published port before enable; same HTTP verification as LAMP
+- UFW: OpenSSH + published port before enable; same HTTP verification as the host path
 
 ## Raw WordPress policy
 
@@ -86,11 +93,11 @@ sudo bash /tmp/swiftweb-install.sh
 - **shellcheck** on Ubuntu 20.04/22.04/24.04 (`install.sh`, `web-install.sh`, `docker-way.sh`, `lib/common.sh`)
 - **shfmt** diff check
 - **bats** unit tests — CRLF heal, passwords, redaction, URL helpers, default-index clearing, source-safety
-- **e2e-lamp** / **e2e-docker** — real unattended installs asserting a WordPress homepage (not a test page)
+- **e2e-host** / **e2e-docker** — real unattended installs asserting a WordPress homepage (not a test page)
 
 ## Requirements
 
-- Ubuntu 20.04 / 22.04 / 24.04
+- Ubuntu 20.04 / 22.04 / 24.04 VPS
 - Root or sudo
 - Outbound internet (apt, wordpress.org, WP-CLI, Docker Hub for `--docker`)
 
@@ -98,9 +105,9 @@ sudo bash /tmp/swiftweb-install.sh
 
 | Artifact | Path |
 |----------|------|
-| LAMP credentials (0600) | `/root/swiftwebsetup-credentials.txt` |
+| Host credentials (0600) | `/root/swiftwebsetup-credentials.txt` |
 | Docker credentials (0600) | `/root/swiftwebsetup-docker-credentials.txt` |
-| LAMP log | `/var/log/swiftwebsetup-web-install.log` |
+| Host log | `/var/log/swiftwebsetup-web-install.log` |
 | Docker log | `/var/log/swiftwebsetup-docker-way.log` |
 
 Secrets go only to the 0600 credentials file — not the world-readable log.

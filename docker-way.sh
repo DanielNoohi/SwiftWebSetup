@@ -36,7 +36,7 @@ PROJECT_NAME="${PROJECT_NAME:-swiftweb}"
 WORDPRESS_PORT="${WORDPRESS_PORT:-80}"
 COMPOSE_DIR="/opt/${PROJECT_NAME}"
 
-# Floating php8.3 tags stay aligned between app + CLI (avoid hard skew vs LAMP latest)
+# Floating php8.3 tags stay aligned between app + CLI (avoid hard skew vs host latest.tar.gz)
 WP_IMAGE="${WP_IMAGE:-wordpress:php8.3-apache}"
 WP_CLI_IMAGE="${WP_CLI_IMAGE:-wordpress:cli-php8.3}"
 DB_IMAGE="${DB_IMAGE:-mariadb:10.11}"

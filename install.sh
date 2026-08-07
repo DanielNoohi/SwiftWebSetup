@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # SwiftWebSetup - install.sh
-# One-command entrypoint: fetch repo scripts and run LAMP or Docker WordPress bootstrap.
+# One-command entrypoint: fetch repo scripts and run host or Docker WordPress bootstrap.
 #
 # Unattended (pipe-safe):
 #   curl -fsSL https://raw.githubusercontent.com/DanielNoohi/SwiftWebSetup/main/install.sh | sudo bash -s -- --unattended
@@ -25,7 +25,7 @@ REPO_URL="https://github.com/DanielNoohi/SwiftWebSetup"
 RAW_URL="https://raw.githubusercontent.com/DanielNoohi/SwiftWebSetup/main"
 REPO_DIR="${SWIFTWEB_REPO_DIR:-/tmp/SwiftWebSetup}"
 
-DEPLOY_MODE="lamp"
+DEPLOY_MODE="host"
 INNER_ARGS=()
 
 RED='\033[0;31m'
@@ -52,16 +52,16 @@ USAGE:
   curl -fsSL ${RAW_URL}/install.sh | sudo bash -s -- --unattended [OPTIONS]
 
 OPTIONS:
-  --docker            Docker WordPress + MariaDB (default: host LAMP)
+  --docker            Docker WordPress + MariaDB (default: native host install on the VPS)
   --unattended        Non-interactive (env vars)
-  --force             Wipe files + DB (LAMP) or volumes (Docker) and reinstall
+  --force             Wipe files + DB (host) or volumes (Docker) and reinstall
   --domain DOMAIN     Site domain (default: server IP)
   --title TITLE       Site title
   --admin USER        Admin username
   --email EMAIL       Admin email
   --name NAME         (docker) project prefix
-  --port PORT         (docker) host port
-  --ssl               (LAMP) HTTPS via certbot (requires --domain)
+  --port PORT         (docker) published port
+  --ssl               (host) HTTPS via certbot (requires --domain)
   --dry-run           Preview only
   -h, --help          Show help
 
@@ -153,5 +153,5 @@ if [[ $rc -ne 0 ]]; then
 fi
 
 success "Deployment complete!"
-info "Credentials: /root/swiftwebsetup-credentials.txt (LAMP) or /root/swiftwebsetup-docker-credentials.txt (Docker)"
+info "Credentials: /root/swiftwebsetup-credentials.txt (host) or /root/swiftwebsetup-docker-credentials.txt (Docker)"
 exit 0
