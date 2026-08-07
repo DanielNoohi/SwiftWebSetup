@@ -215,3 +215,110 @@ ensure_credentials_file() {
 		exit 1
 	fi
 }
+
+# Prompt for site settings (interactive). Flags/env already set win.
+# Sets: DOMAIN SITE_TITLE ADMIN_USER ADMIN_EMAIL ADMIN_PASSWORD SSL (maybe)
+collect_site_config() {
+	local default_email="admin@$(hostname -f 2>/dev/null | cut -d' ' -f1 || echo localhost)"
+	if [[ "${UNATTENDED:-false}" == true ]]; then
+		SITE_TITLE="${SITE_TITLE:-My WordPress Site}"
+		ADMIN_USER="${ADMIN_USER:-admin}"
+		ADMIN_EMAIL="${ADMIN_EMAIL:-$default_email}"
+		DOMAIN="${DOMAIN:-}"
+		[[ -z "${ADMIN_PASSWORD:-}" ]] && ADMIN_PASSWORD=$(gen_password)
+		return 0
+	fi
+
+	local tmp
+	if [[ -z "${SITE_TITLE:-}" ]]; then
+		read -rp "Site title [My WordPress Site]: " tmp
+		SITE_TITLE="${tmp:-My WordPress Site}"
+	fi
+	if [[ -z "${ADMIN_USER:-}" ]]; then
+		read -rp "Admin username [admin]: " tmp
+		ADMIN_USER="${tmp:-admin}"
+	fi
+	if [[ -z "${ADMIN_PASSWORD:-}" ]]; then
+		local entered="" confirm=""
+		read -s -r -p "Admin password (Enter to auto-generate): " entered
+		echo
+		if [[ -n "$entered" ]]; then
+			read -s -r -p "Confirm admin password: " confirm
+			echo
+			if [[ "$entered" != "$confirm" ]]; then
+				error "Passwords do not match"
+				exit 1
+			fi
+			ADMIN_PASSWORD="$entered"
+		else
+			ADMIN_PASSWORD=$(gen_password)
+			info "Generated admin password (saved to credentials file after success)"
+		fi
+	fi
+	if [[ -z "${ADMIN_EMAIL:-}" ]]; then
+		read -rp "Admin email [${default_email}]: " tmp
+		ADMIN_EMAIL="${tmp:-$default_email}"
+	fi
+	if [[ -z "${DOMAIN:-}" ]]; then
+		read -rp "Domain (leave empty for server IP): " tmp
+		DOMAIN="${tmp:-}"
+	fi
+	# HTTPS: if domain set and SSL not forced; host path only (Docker sets SKIP_SSL_PROMPT)
+	if [[ -n "${DOMAIN}" && "${SSL:-false}" != true && "${SKIP_SSL_PROMPT:-false}" != true ]]; then
+		read -rp "Enable HTTPS (Let's Encrypt) for ${DOMAIN}? [Y/n]: " tmp
+		tmp="${tmp:-Y}"
+		if [[ "$tmp" =~ ^[Yy]$ ]]; then
+			SSL=true
+		fi
+	fi
+}
+
+# Rewrite credentials file (call ONLY after successful verify)
+save_credentials() {
+	local mode="${1:-host}"
+	ensure_credentials_file
+	{
+		echo "# SwiftWebSetup credentials — $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+		echo "# Mode: ${mode}"
+		echo "# KEEP THIS FILE SECRET (mode 0600)"
+		echo "Site URL: ${SITE_URL}"
+		echo "Admin URL: ${SITE_URL}/wp-admin/"
+		echo "Site title: ${SITE_TITLE}"
+		echo "Admin user: ${ADMIN_USER}"
+		echo "Admin pass: ${ADMIN_PASSWORD}"
+		echo "Admin email: ${ADMIN_EMAIL}"
+		echo "DB name: ${WP_DB_NAME}"
+		echo "DB user: ${WP_DB_USER}"
+		echo "DB pass: ${WP_DB_PASSWORD}"
+		echo "MariaDB root: ${MYSQL_ROOT_PASSWORD}"
+		[[ -n "${EXTRA_CRED_LINES:-}" ]] && printf '%s\n' "${EXTRA_CRED_LINES}"
+	} >"${CREDENTIALS_FILE}"
+	chmod 600 "${CREDENTIALS_FILE}"
+}
+
+print_summary_card() {
+	local mode="${1:-host}"
+	echo >&2
+	success "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	success "  WordPress is live"
+	success "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	info "  Site:        ${SITE_URL}"
+	info "  Admin:       ${SITE_URL}/wp-admin/"
+	info "  Username:    ${ADMIN_USER}"
+	if [[ "${UNATTENDED:-false}" == true ]]; then
+		info "  Password:    (see credentials file)"
+	else
+		info "  Password:    ${ADMIN_PASSWORD}"
+	fi
+	info "  Credentials: ${CREDENTIALS_FILE} (0600)"
+	[[ -n "${LOG_FILE:-}" ]] && info "  Log:         ${LOG_FILE}"
+	[[ "$mode" == "docker" && -n "${COMPOSE_DIR:-}" ]] && info "  Compose:     ${COMPOSE_DIR}"
+	success "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	echo >&2
+}
+
+install_fail_hint() {
+	error "Install did not finish cleanly."
+	warn "Fix the error above, then re-run with --force to wipe and retry (or restore from a backup)."
+}
+

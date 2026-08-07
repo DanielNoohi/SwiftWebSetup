@@ -3,15 +3,13 @@
 # SwiftWebSetup - install.sh
 # One-command entrypoint: fetch repo scripts and run host or Docker WordPress bootstrap.
 #
-# Unattended (pipe-safe):
+# Unattended:
 #   curl -fsSL https://raw.githubusercontent.com/DanielNoohi/SwiftWebSetup/main/install.sh | sudo bash -s -- --unattended
-#
-# Interactive (download first — curl|bash steals stdin):
+# Interactive:
 #   curl -fsSL .../install.sh -o /tmp/swiftweb-install.sh && sudo bash /tmp/swiftweb-install.sh
 
 set -euo pipefail
 
-# CRLF self-heal (literal backslash-r)
 if command -v file >/dev/null 2>&1 && file "$0" | grep -q "CRLF"; then
 	echo "[*] Converting script line endings from CRLF to LF..."
 	tmpfix=$(mktemp)
@@ -41,32 +39,30 @@ success() { echo -e "${GREEN}$*${NC}" >&2; }
 
 show_help() {
 	cat <<EOF
-SwiftWebSetup - One-Command WordPress Production Bootstrap
+SwiftWebSetup - One-Command WordPress Production Bootstrap (Ubuntu VPS)
 
 USAGE:
-  # Interactive (recommended)
   curl -fsSL ${RAW_URL}/install.sh -o /tmp/swiftweb-install.sh
   sudo bash /tmp/swiftweb-install.sh [OPTIONS]
 
-  # Unattended / CI (pipe-safe)
   curl -fsSL ${RAW_URL}/install.sh | sudo bash -s -- --unattended [OPTIONS]
 
 OPTIONS:
-  --docker            Docker WordPress + MariaDB (default: native host install on the VPS)
-  --unattended        Non-interactive (env vars)
-  --force             Wipe files + DB (host) or volumes (Docker) and reinstall
-  --domain DOMAIN     Site domain (default: server IP)
+  --docker            Docker deploy (default: native host install)
+  --unattended        Non-interactive
+  --force             Wipe and reinstall
+  --backup-only       (host) backup web root + DB, exit
+  --domain DOMAIN     Site domain
   --title TITLE       Site title
   --admin USER        Admin username
   --email EMAIL       Admin email
   --name NAME         (docker) project prefix
   --port PORT         (docker) published port
-  --ssl               (host) HTTPS via certbot (requires --domain)
+  --ssl               (host) HTTPS via certbot (needs --domain)
+  --fail2ban          (host) install fail2ban
+  --auto-updates      (host) enable unattended-upgrades
   --dry-run           Preview only
   -h, --help          Show help
-
-ENV (unattended): SITE_TITLE ADMIN_USER ADMIN_PASSWORD ADMIN_EMAIL DOMAIN
-  WP_DB_NAME WP_DB_USER WP_DB_PASSWORD MYSQL_ROOT_PASSWORD FORCE
 EOF
 }
 
@@ -76,7 +72,7 @@ while [[ $# -gt 0 ]]; do
 		DEPLOY_MODE="docker"
 		shift
 		;;
-	--unattended | --force | --dry-run | --ssl)
+	--unattended | --force | --dry-run | --ssl | --backup-only | --fail2ban | --auto-updates)
 		INNER_ARGS+=("$1")
 		shift
 		;;
@@ -105,9 +101,8 @@ if [[ ${EUID} -ne 0 ]]; then
 	exit 1
 fi
 
-# If already running from a full checkout that has the installers, use it.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -f "$SCRIPT_DIR/web-install.sh" && -f "$SCRIPT_DIR/docker-way.sh" && -f "$SCRIPT_DIR/lib/common.sh" ]]; then
+if [[ -f "$SCRIPT_DIR/host-install.sh" && -f "$SCRIPT_DIR/docker-way.sh" && -f "$SCRIPT_DIR/lib/common.sh" ]]; then
 	REPO_DIR="$SCRIPT_DIR"
 	info "Using local checkout: $REPO_DIR"
 else
@@ -127,6 +122,7 @@ else
 		if ! git clone --depth 1 "$REPO_URL" "$REPO_DIR"; then
 			warn "git clone failed — falling back to raw script download..."
 			mkdir -p "$REPO_DIR/lib"
+			curl -fsSL "$RAW_URL/host-install.sh" -o "$REPO_DIR/host-install.sh"
 			curl -fsSL "$RAW_URL/web-install.sh" -o "$REPO_DIR/web-install.sh"
 			curl -fsSL "$RAW_URL/docker-way.sh" -o "$REPO_DIR/docker-way.sh"
 			curl -fsSL "$RAW_URL/lib/common.sh" -o "$REPO_DIR/lib/common.sh"
@@ -134,7 +130,7 @@ else
 	fi
 fi
 
-chmod +x "$REPO_DIR/web-install.sh" "$REPO_DIR/docker-way.sh" 2>/dev/null || true
+chmod +x "$REPO_DIR"/host-install.sh "$REPO_DIR"/web-install.sh "$REPO_DIR"/docker-way.sh 2>/dev/null || true
 
 info "Starting ${DEPLOY_MODE} deployment..."
 set +e
@@ -142,7 +138,7 @@ if [[ "$DEPLOY_MODE" == "docker" ]]; then
 	bash "$REPO_DIR/docker-way.sh" "${INNER_ARGS[@]}"
 	rc=$?
 else
-	bash "$REPO_DIR/web-install.sh" "${INNER_ARGS[@]}"
+	bash "$REPO_DIR/host-install.sh" "${INNER_ARGS[@]}"
 	rc=$?
 fi
 set -e

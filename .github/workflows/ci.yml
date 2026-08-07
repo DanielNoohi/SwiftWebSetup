@@ -25,10 +25,10 @@ jobs:
           apt-get install -y shellcheck bash
       - name: bash -n (syntax)
         run: |
-          for f in install.sh web-install.sh docker-way.sh lib/common.sh; do bash -n "$f"; done
+          for f in install.sh host-install.sh web-install.sh docker-way.sh lib/common.sh; do bash -n "$f"; done
       - name: shellcheck (fail on any finding)
         run: |
-          for f in install.sh web-install.sh docker-way.sh lib/common.sh; do
+          for f in install.sh host-install.sh web-install.sh docker-way.sh lib/common.sh; do
             shellcheck -x "$f"
           done
 
@@ -43,7 +43,7 @@ jobs:
           sudo apt-get install -y shfmt
       - name: Check formatting
         run: |
-          shfmt -d install.sh web-install.sh docker-way.sh lib/common.sh
+          shfmt -d install.sh host-install.sh web-install.sh docker-way.sh lib/common.sh
           echo "shfmt check done (empty diff above = compliant)"
 
   # ── Unit tests (bats) ────────────────────────────────────────────────
@@ -74,7 +74,7 @@ jobs:
           sudo SITE_TITLE="$SWIFTWEB_TITLE" \
                ADMIN_USER="$SWIFTWEB_ADMIN" \
                ADMIN_EMAIL="$SWIFTWEB_EMAIL" \
-               bash web-install.sh --unattended
+               bash host-install.sh --unattended
         timeout-minutes: 20
       - name: Verify a real WordPress front page (not Apache test page) + creds 0600
         run: |

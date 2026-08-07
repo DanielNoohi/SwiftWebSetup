@@ -3,12 +3,11 @@
 # SwiftWebSetup - docker-way.sh
 # Docker WordPress + MariaDB via Compose; install completed with wordpress:cli
 #
-# Usage: sudo bash docker-way.sh [--dry-run] [--unattended] [--force]
-#          [--name NAME] [--port PORT] [--domain D] [--title T] [--admin U] [--email E]
+# Host path uses wordpress.org latest.tar.gz; Docker uses wordpress:php8.3-apache
+# (override WP_IMAGE / WP_CLI_IMAGE / DB_IMAGE). Same end state: live WordPress.
 
 set -euo pipefail
 
-# CRLF self-heal (literal backslash-r)
 if command -v file >/dev/null 2>&1 && file "$0" | grep -q "CRLF"; then
 	echo "[*] Converting script line endings from CRLF to LF..."
 	tmpfix=$(mktemp)
@@ -28,6 +27,7 @@ CREDENTIALS_FILE="/root/swiftwebsetup-docker-credentials.txt"
 DRY_RUN=false
 UNATTENDED=false
 FORCE=false
+SSL=false
 DOMAIN=""
 SITE_TITLE=""
 ADMIN_USER=""
@@ -36,7 +36,6 @@ PROJECT_NAME="${PROJECT_NAME:-swiftweb}"
 WORDPRESS_PORT="${WORDPRESS_PORT:-80}"
 COMPOSE_DIR="/opt/${PROJECT_NAME}"
 
-# Floating php8.3 tags stay aligned between app + CLI (avoid hard skew vs host latest.tar.gz)
 WP_IMAGE="${WP_IMAGE:-wordpress:php8.3-apache}"
 WP_CLI_IMAGE="${WP_CLI_IMAGE:-wordpress:cli-php8.3}"
 DB_IMAGE="${DB_IMAGE:-mariadb:10.11}"
@@ -47,6 +46,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 		--dry-run) DRY_RUN=true; shift ;;
 		--unattended) UNATTENDED=true; shift ;;
 		--force) FORCE=true; shift ;;
+		--ssl) SSL=true; shift ;;
 		--name)
 			PROJECT_NAME="$2"
 			COMPOSE_DIR="/opt/${PROJECT_NAME}"
@@ -59,12 +59,12 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 		--email) ADMIN_EMAIL="$2"; shift 2 ;;
 		-h | --help)
 			echo "Usage: sudo bash $SCRIPT_NAME [opts]"
-			echo "  --dry-run      preview (no changes)"
-			echo "  --unattended   non-interactive (env vars)"
-			echo "  --force        recreate project (wipe volumes) and reinstall"
+			echo "  --dry-run      preview"
+			echo "  --unattended   non-interactive"
+			echo "  --force        wipe volumes and reinstall"
 			echo "  --name NAME    project prefix (default: swiftweb)"
-			echo "  --port PORT    host port for WordPress (default: 80)"
-			echo "  --domain D     site domain (default: server IP)"
+			echo "  --port PORT    published port (default: 80)"
+			echo "  --domain D     site domain"
 			echo "  --title T      site title"
 			echo "  --admin U      admin username"
 			echo "  --email E      admin email"
@@ -78,20 +78,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 	done
 fi
 
-ask_password() {
-	if [[ "$UNATTENDED" == true ]] || [[ -n "${ADMIN_PASSWORD:-}" ]]; then
-		[[ -z "${ADMIN_PASSWORD:-}" ]] && ADMIN_PASSWORD=$(gen_password)
-		return
-	fi
-	local entered=""
-	read -s -r -p "Admin password (Enter to auto-generate): " entered
-	echo
-	if [[ -n "$entered" ]]; then
-		ADMIN_PASSWORD="$entered"
-	else
-		ADMIN_PASSWORD=$(gen_password)
-	fi
-}
+trap 'install_fail_hint' ERR
 
 install_docker() {
 	if command -v docker &>/dev/null && docker compose version &>/dev/null; then
@@ -122,7 +109,6 @@ install_docker() {
 	success "Docker installed"
 }
 
-# Prints ONLY the directory path on stdout (logs go to stderr via info/)
 create_compose_file() {
 	local dir="$COMPOSE_DIR"
 	info "Creating project directory $dir"
@@ -285,27 +271,17 @@ main() {
 	ensure_python
 	touch "$LOG_FILE" 2>/dev/null || true
 
-	DOMAIN="${DOMAIN:-}"
-	SITE_TITLE="${SITE_TITLE:-My WordPress Site}"
-	ADMIN_USER="${ADMIN_USER:-admin}"
-	ADMIN_EMAIL="${ADMIN_EMAIL:-admin@example.com}"
+	# Docker does not run host certbot; skip SSL prompt
+	SKIP_SSL_PROMPT=true collect_site_config
+
 	WP_DB_NAME="${WP_DB_NAME:-wordpress}"
 	WP_DB_USER="${WP_DB_USER:-wp_user}"
 	WP_DB_PASSWORD="${WP_DB_PASSWORD:-$(gen_password)}"
 	MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-$(gen_password)}"
-	ask_password
-
 	SITE_URL="$(get_site_url)"
 
-	ensure_credentials_file
-	credential "# SwiftWebSetup Docker credentials - $(date)"
-	credential "Site URL:  $SITE_URL"
-	credential "Admin user: $ADMIN_USER"
-	credential "Admin pass: $ADMIN_PASSWORD"
-	credential "Admin email: $ADMIN_EMAIL"
-	credential "DB: db=$WP_DB_NAME user=$WP_DB_USER pass=$WP_DB_PASSWORD"
-	credential "MariaDB root: $MYSQL_ROOT_PASSWORD"
-	credential "Images: $WP_IMAGE + $WP_CLI_IMAGE + $DB_IMAGE"
+	EXTRA_CRED_LINES="Images: ${WP_IMAGE} + ${WP_CLI_IMAGE} + ${DB_IMAGE}
+Compose: ${COMPOSE_DIR}"
 
 	install_docker
 
@@ -318,6 +294,7 @@ main() {
 			dc "$dir" exec -T wpcli wp core is-installed --path=/var/www/html --allow-root >/dev/null 2>&1; then
 			warn "WordPress already deployed at $dir."
 			warn "Re-run with --force to wipe volumes and reinstall."
+			trap - ERR
 			exit 0
 		fi
 	fi
@@ -325,7 +302,6 @@ main() {
 	if [[ "$FORCE" == true ]]; then
 		warn "Force mode: docker compose down -v (wipe volumes)..."
 		run_cmd docker compose -f "$dir/docker-compose.yml" down -v || true
-		# Recreate compose files with current env/passwords
 		dir=$(create_compose_file)
 	fi
 
@@ -336,16 +312,16 @@ main() {
 		complete_wp_install "$dir" "$SITE_URL"
 		configure_firewall
 		verify_site "$SITE_URL" "$dir"
+		save_credentials "docker"
 	fi
 
-	success "=== DONE ==="
-	info "Site:        $SITE_URL"
-	info "Admin URL:   $SITE_URL/wp-admin/"
-	info "Project:     $dir"
-	info "Credentials: $CREDENTIALS_FILE (0600)"
-	info "Log:         $LOG_FILE"
-	info "Manage:      docker compose -f $dir/docker-compose.yml up -d|down|logs -f"
+	trap - ERR
+	print_summary_card "docker"
+	info "Manage: docker compose -f ${dir}/docker-compose.yml up -d|down|logs -f"
 	warn "Re-run with --force to wipe volumes and reinstall."
+	if [[ "$SSL" == true ]]; then
+		warn "Docker path does not run certbot on the host; terminate TLS at a reverse proxy or use the host installer with --ssl."
+	fi
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
