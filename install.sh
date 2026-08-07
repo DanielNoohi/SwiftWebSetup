@@ -1,25 +1,85 @@
-PROJECT_NAME="${PROJECT_NAME:-swiftweb}"
+#!/usr/bin/env bash
 
-# Enforce root or bail on EUID 1000+ (avoid ‘user root’==UID 1001 crash)
-# https://serverfault.com/questions/871253/correct-way-to-check-for-root-user-in-bash
-check_root() {
-    if ! [[ "$EUID" -eq 0 ]]; then
-        # Many distros cannot set permissions properly without sudo.
-        echo "This script must run as root (sudo).
-"        exit 1
-    fi
-}
+# Arguments to the web-install.sh script
+ARGS=($@)
 
-check_root
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            echo "Usage: sudo bash install.sh [options]"
+            echo "  --docker        Use Docker path (default: LAMP)"
+            echo "  --unattended   Non-interactive mode"
+            echo "  --force        Wipe files + DB and reinstall"
+            echo "  --domain D     Set site domain (default: server IP)"
+            echo "  --title T      Set site title"
+            echo "  --admin U      Set admin username"
+            echo "  --email E      Set admin email"
+            echo "  --name N       (Docker) project name (default: swiftweb)"
+            echo "  --port P       (Docker) host port for WordPress"
+            echo "  --dry-run     Preview changes without executing"
+            echo "  -h, --help  Show this help and exit"
+            exit 0
+            ;;
+        --docker)
+            DOCKER=true
+            shift
+            ;;
+        --unattended)
+            UNATTENDED=true
+            shift
+            ;;
+        --force)
+            FORCE=true
+            shift
+            ;;
+        --domain)
+            shift
+            DOMAIN="$1"
+            shift 2
+            ;;
+        --title)
+            shift
+            SITE_TITLE="$1"
+            shift 2
+            ;;
+        --admin)
+            shift
+            ADMIN_USER="$1"
+            shift 2
+            ;;
+        --email)
+            shift
+            ADMIN_EMAIL="$1"
+            shift 2
+            ;;
+        --name)
+            shift
+            PROJECT_NAME="$1"
+            shift 2
+            ;;
+        --port)
+            shift
+            WORDPRESS_PORT="$1"
+            shift 2
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+    shift
+    [[ $1 =~ ^- ]]; shift
 
-# Ubuntu version + proper git config
-check_os() {
-    . /etc/os-release
-    if [[ "$VERSION_ID" =~ ^([0-9])$ ]]; then
-        git config --global --add safe-directory '/'
-        git config --global --add safe-directory '~/'
-        echo "Configured global git safe directories."
-    else
-        echo "Cannot configure global safe directory for git. Please use a supported Ubuntu version." 
-    fi
-}
+# Install WordPress
+if [[ $DOCKER -eq true ]]; then
+    # Docker setup
+    echo "Docker setup"
+else
+    # LAMP setup
+    echo "LAMP setup"
+fi

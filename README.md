@@ -37,14 +37,14 @@ sudo bash /tmp/swiftweb-install.sh
 | Flag | Effect |
 |------|--------|
 | `--docker` | Deploy WordPress + MariaDB as Docker containers (host LAMP by default) |
-| `--unattended` | Non-interactive (all inputs from env vars) |
+| `--unattended` | Non-interactive mode (all inputs from env vars) |
 | `--force` | Wipe existing WordPress files/DB and reinstall |
 | `--domain D` | Set site domain (default: server IP) |
 | `--title T` | WordPress site title |
 | `--admin U` | Admin username |
 | `--email E` | Admin email |
-| `--name N` | (docker) project/container prefix |
-| `--port P` | (docker) host port for WordPress |
+| `--name N` | (docker) project/container prefix (default: swiftweb) |
+| `--port P` | (docker) host port for WordPress (default: 80) |
 | `--dry-run` | Preview changes without executing |
 | `--ssl` | Enable HTTPS via certbot (requires `--domain`) |
 
@@ -55,7 +55,7 @@ sudo bash /tmp/swiftweb-install.sh
 ## Re-runs are safe (idempotent)
 
 - If WordPress is already installed and you run **without** `--force`, the script backs off and exits 0 — it does **not** wipe a live site.
-- `--force` wipes files/DB (with a timestamped `cp -a` backup of the old web root first) and reinstalls.
+- `--force` clears all web root files/DB (timestamped backup first) and reinstalls.
 - `wp core install` skips automatically when WP is already installed.
 
 ## What it installs (LAMP path, web-install.sh)
@@ -64,7 +64,7 @@ sudo bash /tmp/swiftweb-install.sh
 2. **Database**: MariaDB hardened (root password set with modern `IDENTIFIED BY`, anonymous users removed, test DB dropped), WordPress DB + least-privilege user
 3. **WordPress**: official core downloaded with gzip integrity check, extracted to `/var/www/html`, `wp-config.php` written via WP-CLI, salts shuffled
 4. **Install**: `wp core install` completes the site (idempotent), permalinks set via `wp rewrite --hard`, `.htaccess` hardened *after* rewrite so it survives
-5. **Hardening**: UFW (OpenSSH allowed **before** enable — no lockout), security headers, `www-data` ownership, 755/644 permissions
+5. **Hardening**: UFW (SSH + HTTP/HTTPS), security headers, `www-data` ownership, 755/644 permissions
 6. **Verify**: `wp core is-installed` + homepage must contain `wp-content`/`wp-includes` — otherwise the script fails
 
 ## Docker path (docker-way.sh)
@@ -74,7 +74,8 @@ sudo bash /tmp/swiftweb-install.sh
 - Healthchecks, named volumes, restart policy, `restart: "no"` helper
 - WP-CLI runs inside the `wpcli` container: `wp core install`, permalinks, cleanup — same verification as LAMP path
 - Project in `/opt/<name>/` with `docker-compose.yml` + 0600 `.env`; credentials in `/root/swiftwebsetup-docker-credentials.txt`
-- UFW opens OpenSSH + the published WordPress port
+- UFW: OpenSSH + the published WordPress port before enable
+- Verify WordPress homepage + `wp-login.php` as in LAMP path
 
 ## Raw WordPress policy
 
@@ -90,23 +91,6 @@ sudo bash /tmp/swiftweb-install.sh
 - **e2e-lamp**: real unattended `web-install.sh` on a fresh Ubuntu runner, then asserts a WordPress homepage + `wp-login.php` 200 + creds file 0600
 - **e2e-docker**: real unattended `docker-way.sh --port 8080`, then asserts a WordPress page served from containers (not an nginx welcome page)
 
-## Requirements
-
-- Ubuntu 20.04 / 22.04 / 24.04
-- Root or sudo access
-- Outbound internet access (apt, wordpress.org, wp-cli)
-
-## Logs & credentials
-
-| Artifact | Path |
-|----------|------|
-| LAMP credentials (0600) | `/root/swiftwebsetup-credentials.txt` |
-| Docker credentials (0600) | `/root/swiftwebsetup-docker-credentials.txt` |
-| LAMP log | `/var/log/swiftwebsetup-web-install.log` |
-| Docker log | `/var/log/swiftwebsetup-docker-way.log` |
-
-Secrets go only to the 0600 credentials file and the terminal — never to the world-readable log (command lines are scrubbed before logging).
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+If a tool, install, or network call fails and blocks the real path, say so directly and try an alternative (different package manager, different approach, ask the user). NEVER substitute plausible-looking fabricated output (made-up data, invented file contents, synthesised API responses) for results you couldn't actually produce. Reporting a blocker honestly is always better than inventing a result.
+If a tool or install fails and you suspect external causes (e.g., upstream service unavailable), verify this with a small diagnostic before re-attempting the main task. For network calls, use tools like `curl`/`ping` to test connectivity first.
+hen the user references something from a past conversation or you suspect relevant cross-session context exists, use `session_search` to recall it before asking them to repeat themselves. After completing a complex task (5+ tool calls), offer to save as a skill. If a skill you loaded was missing steps, had wrong commands, or needed pitfalls you discovered, update it before finishing. When you finish a task, summarize your findings in a human-readable format — include any findings, output, or hints that might help the user in the future.
