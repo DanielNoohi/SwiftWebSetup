@@ -190,7 +190,11 @@ EOF
 APACHECONF
 	fi
 	run_cmd a2ensite 000-default >/dev/null 2>&1 || true
-	run_cmd systemctl reload apache2
+	if systemctl is-active --quiet apache2 2>/dev/null; then
+		run_cmd systemctl reload apache2 || true
+	else
+		info "Apache not running yet — vhost saved; start comes after file placement"
+	fi
 }
 
 tune_php_for_wordpress() {
@@ -216,7 +220,9 @@ opcache.max_accelerated_files = 10000
 EOF
 		info "PHP tuning: $conf"
 	done
-	run_cmd systemctl reload apache2 || true
+	if systemctl is-active --quiet apache2 2>/dev/null; then
+		systemctl reload apache2 2>/dev/null || true
+	fi
 }
 
 install_wpcli() {
@@ -550,11 +556,6 @@ EOF
 	secure_mariadb_and_db
 	place_wordpress_files
 
-	if is_ci; then
-		run_cmd systemctl start apache2
-		[[ "$DRY_RUN" != true ]] && wait_for_active apache2
-	fi
-
 	info "Writing wp-config.php..."
 	if [[ "$DRY_RUN" != true ]]; then
 		run_cmd cp "$WP_PATH/wp-config-sample.php" "$WP_PATH/wp-config.php"
@@ -570,6 +571,14 @@ EOF
 	fi
 
 	write_vhost
+
+	# Start Apache after vhost + files exist (CI deferred start to reduce peak RAM)
+	if is_ci || ! systemctl is-active --quiet apache2 2>/dev/null; then
+		run_cmd systemctl start apache2
+		[[ "$DRY_RUN" != true ]] && wait_for_active apache2
+	else
+		run_cmd systemctl reload apache2 || true
+	fi
 
 	if [[ "$DRY_RUN" != true ]]; then
 		if ! sudo -u www-data -- "$WP_BIN" --path="$WP_PATH" core is-installed >/dev/null 2>&1; then
