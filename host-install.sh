@@ -43,17 +43,50 @@ ADMIN_EMAIL=""
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
-		--dry-run) DRY_RUN=true; shift ;;
-		--unattended) UNATTENDED=true; shift ;;
-		--force) FORCE=true; shift ;;
-		--ssl) SSL=true; shift ;;
-		--backup-only) BACKUP_ONLY=true; shift ;;
-		--fail2ban) FAIL2BAN=true; shift ;;
-		--auto-updates) AUTO_UPDATES=true; shift ;;
-		--domain) DOMAIN="$2"; shift 2 ;;
-		--title) SITE_TITLE="$2"; shift 2 ;;
-		--admin) ADMIN_USER="$2"; shift 2 ;;
-		--email) ADMIN_EMAIL="$2"; shift 2 ;;
+		--dry-run)
+			DRY_RUN=true
+			shift
+			;;
+		--unattended)
+			UNATTENDED=true
+			shift
+			;;
+		--force)
+			FORCE=true
+			shift
+			;;
+		--ssl)
+			SSL=true
+			shift
+			;;
+		--backup-only)
+			BACKUP_ONLY=true
+			shift
+			;;
+		--fail2ban)
+			FAIL2BAN=true
+			shift
+			;;
+		--auto-updates)
+			AUTO_UPDATES=true
+			shift
+			;;
+		--domain)
+			DOMAIN="$2"
+			shift 2
+			;;
+		--title)
+			SITE_TITLE="$2"
+			shift 2
+			;;
+		--admin)
+			ADMIN_USER="$2"
+			shift 2
+			;;
+		--email)
+			ADMIN_EMAIL="$2"
+			shift 2
+			;;
 		-h | --help)
 			cat <<EOF
 Usage: sudo bash $SCRIPT_NAME [opts]
@@ -234,12 +267,12 @@ place_wordpress_files() {
 	rm -f "$WP_PATH/index.html" 2>/dev/null || true
 }
 
-# MariaDB: prefer socket on fresh Ubuntu, then password auth
+# MariaDB: prefer socket on fresh Ubuntu, then password auth (reads SQL from stdin)
 mariadb_exec() {
 	if mariadb -u root -e "SELECT 1" &>/dev/null; then
-		mariadb -u root "$@"
+		mariadb -u root
 	elif [[ -n "${MYSQL_ROOT_PASSWORD:-}" ]] && MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mariadb -u root -e "SELECT 1" &>/dev/null; then
-		MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mariadb -u root "$@"
+		MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mariadb -u root
 	else
 		error "Cannot authenticate to MariaDB as root (socket or password)"
 		return 1
@@ -400,8 +433,8 @@ main() {
 	collect_site_config
 	WP_DB_NAME="${WP_DB_NAME:-wordpress}"
 	WP_DB_USER="${WP_DB_USER:-wp_user}"
-	WP_DB_PASSWORD="${WP_DB_PASSWORD:-$(gen_password)}"
-	MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-$(gen_password)}"
+	WP_DB_PASSWORD="${WP_DB_PASSWORD:-$(gen_password 32)}"
+	MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-$(gen_password 32)}"
 	SITE_URL="$(get_site_url)"
 
 	install_wpcli

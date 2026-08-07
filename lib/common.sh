@@ -104,9 +104,12 @@ ensure_python() {
 }
 
 gen_password() {
-	local len="${1:-32}" pass=""
+	local len=32
+	[[ $# -ge 1 ]] && len="$1"
+	local pass=""
 	if command -v python3 &>/dev/null; then
-		pass=$(python3 - "$len" <<'PY'
+		pass=$(
+			python3 - "$len" <<'PY'
 import secrets, string, sys
 n = int(sys.argv[1])
 alphabet = string.ascii_letters + string.digits + "!@#%^*_-+=<>~"
@@ -153,7 +156,8 @@ wait_for_active() {
 
 backup_dir() {
 	[[ -e "$1" ]] || return 0
-	local b="${1}.backup.$(date +%Y%m%d_%H%M%S)"
+	local b
+	b="${1}.backup.$(date +%Y%m%d_%H%M%S)"
 	run_cmd cp -a "$1" "$b"
 	info "Backed up $1 -> $b"
 }
@@ -219,13 +223,14 @@ ensure_credentials_file() {
 # Prompt for site settings (interactive). Flags/env already set win.
 # Sets: DOMAIN SITE_TITLE ADMIN_USER ADMIN_EMAIL ADMIN_PASSWORD SSL (maybe)
 collect_site_config() {
-	local default_email="admin@$(hostname -f 2>/dev/null | cut -d' ' -f1 || echo localhost)"
+	local default_email
+	default_email="admin@$(hostname -f 2>/dev/null | cut -d' ' -f1 || echo localhost)"
 	if [[ "${UNATTENDED:-false}" == true ]]; then
 		SITE_TITLE="${SITE_TITLE:-My WordPress Site}"
 		ADMIN_USER="${ADMIN_USER:-admin}"
 		ADMIN_EMAIL="${ADMIN_EMAIL:-$default_email}"
 		DOMAIN="${DOMAIN:-}"
-		[[ -z "${ADMIN_PASSWORD:-}" ]] && ADMIN_PASSWORD=$(gen_password)
+		[[ -z "${ADMIN_PASSWORD:-}" ]] && ADMIN_PASSWORD=$(gen_password 32)
 		return 0
 	fi
 
@@ -251,7 +256,7 @@ collect_site_config() {
 			fi
 			ADMIN_PASSWORD="$entered"
 		else
-			ADMIN_PASSWORD=$(gen_password)
+			ADMIN_PASSWORD=$(gen_password 32)
 			info "Generated admin password (saved to credentials file after success)"
 		fi
 	fi
@@ -321,4 +326,3 @@ install_fail_hint() {
 	error "Install did not finish cleanly."
 	warn "Fix the error above, then re-run with --force to wipe and retry (or restore from a backup)."
 }
-

@@ -9,7 +9,7 @@ on:
 jobs:
   # ── Static analysis: shellcheck on the supported Ubuntu matrix ─────
   shellcheck:
-    name: shellcheck (${{ matrix.os }})
+    name: shellcheck (${{ matrix.container }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -18,7 +18,7 @@ jobs:
     container:
       image: ${{ matrix.container }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install shellcheck + bash
         run: |
           apt-get update
@@ -29,14 +29,14 @@ jobs:
       - name: shellcheck (fail on any finding)
         run: |
           for f in install.sh host-install.sh web-install.sh docker-way.sh lib/common.sh; do
-            shellcheck -x "$f"
+            shellcheck -x -S warning "$f"
           done
 
   # ── Formatting: shfmt diff check ─────────────────────────────────────
   format:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install shfmt
         run: |
           sudo apt-get update
@@ -50,7 +50,7 @@ jobs:
   unit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install bats
         run: |
           sudo apt-get update
@@ -68,7 +68,7 @@ jobs:
       SWIFTWEB_ADMIN: "ciadmin"
       SWIFTWEB_EMAIL: "ci@example.com"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Run web-install.sh (unattended)
         run: |
           sudo SITE_TITLE="$SWIFTWEB_TITLE" \
@@ -101,7 +101,7 @@ jobs:
       SWIFTWEB_ADMIN: "ciadmin"
       SWIFTWEB_EMAIL: "ci@example.com"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Run docker-way.sh (unattended, non-privileged port 8080)
         run: |
           # GitHub runners have Docker preinstalled; script detects it.

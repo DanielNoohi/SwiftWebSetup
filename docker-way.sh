@@ -43,20 +43,47 @@ DB_IMAGE="${DB_IMAGE:-mariadb:10.11}"
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
-		--dry-run) DRY_RUN=true; shift ;;
-		--unattended) UNATTENDED=true; shift ;;
-		--force) FORCE=true; shift ;;
-		--ssl) SSL=true; shift ;;
+		--dry-run)
+			DRY_RUN=true
+			shift
+			;;
+		--unattended)
+			UNATTENDED=true
+			shift
+			;;
+		--force)
+			FORCE=true
+			shift
+			;;
+		--ssl)
+			SSL=true
+			shift
+			;;
 		--name)
 			PROJECT_NAME="$2"
 			COMPOSE_DIR="/opt/${PROJECT_NAME}"
 			shift 2
 			;;
-		--port) WORDPRESS_PORT="$2"; shift 2 ;;
-		--domain) DOMAIN="$2"; shift 2 ;;
-		--title) SITE_TITLE="$2"; shift 2 ;;
-		--admin) ADMIN_USER="$2"; shift 2 ;;
-		--email) ADMIN_EMAIL="$2"; shift 2 ;;
+		--port)
+			WORDPRESS_PORT="$2"
+			shift 2
+			;;
+		--domain)
+			DOMAIN="$2"
+			shift 2
+			;;
+		--title)
+			SITE_TITLE="$2"
+			shift 2
+			;;
+		--admin)
+			ADMIN_USER="$2"
+			shift 2
+			;;
+		--email)
+			ADMIN_EMAIL="$2"
+			shift 2
+			;;
 		-h | --help)
 			echo "Usage: sudo bash $SCRIPT_NAME [opts]"
 			echo "  --dry-run      preview"
@@ -276,8 +303,8 @@ main() {
 
 	WP_DB_NAME="${WP_DB_NAME:-wordpress}"
 	WP_DB_USER="${WP_DB_USER:-wp_user}"
-	WP_DB_PASSWORD="${WP_DB_PASSWORD:-$(gen_password)}"
-	MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-$(gen_password)}"
+	WP_DB_PASSWORD="${WP_DB_PASSWORD:-$(gen_password 32)}"
+	MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-$(gen_password 32)}"
 	SITE_URL="$(get_site_url)"
 
 	EXTRA_CRED_LINES="Images: ${WP_IMAGE} + ${WP_CLI_IMAGE} + ${DB_IMAGE}
