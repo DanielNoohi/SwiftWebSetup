@@ -167,4 +167,4 @@ jobs:
           code=$(curl -s -o /dev/null -w '%{http_code}' -L http://127.0.0.1:8080/wp-login.php)
           [ "$code" = "200" ] && echo "OK: wp-login.php 200" || { echo "FAIL: wp-login.php -> $code"; exit 1; }
       - name: Show container status
-        run: docker compose -f /opt/swiftweb/docker-compose.yml ps
+        run: sudo docker compose -f /opt/swiftweb/docker-compose.yml ps || true

@@ -237,25 +237,10 @@ download_wordpress() {
 	run_cmd rm -rf /tmp/swiftweb-wp
 	run_cmd mkdir -p /tmp/swiftweb-wp
 
-	# GitHub-hosted runners are memory-tight once Apache+MariaDB are up.
-	if is_ci; then
-		info "CI: ensuring swap + pausing Apache during extract"
-		if ! swapon --show 2>/dev/null | grep -q .; then
-			if [[ ! -f /swapfile ]]; then
-				fallocate -l 1G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none
-				chmod 600 /swapfile
-				mkswap /swapfile >/dev/null
-			fi
-			swapon /swapfile 2>/dev/null || warn "Could not enable swap"
-		fi
-		systemctl stop apache2 2>/dev/null || true
-	fi
-
 	info "Fetching WordPress tarball..."
 	run_cmd wget -q -O /tmp/latest.tar.gz https://wordpress.org/latest.tar.gz
 	if ! gzip -t /tmp/latest.tar.gz 2>/dev/null; then
 		error "Downloaded file is not a valid gzip tarball"
-		systemctl start apache2 2>/dev/null || true
 		exit 1
 	fi
 	info "Extracting WordPress archive..."
@@ -263,17 +248,29 @@ download_wordpress() {
 		error "tar extract failed (check free memory/disk)"
 		free -m || true
 		df -h /tmp || true
-		systemctl start apache2 2>/dev/null || true
 		exit 1
 	fi
 	rm -f /tmp/latest.tar.gz 2>/dev/null || true
-	systemctl start apache2 2>/dev/null || true
 
 	[[ -f /tmp/swiftweb-wp/wordpress/wp-settings.php ]] || {
 		error "WordPress extract missing wp-settings.php"
 		exit 1
 	}
 	success "WordPress core extracted"
+}
+
+ci_ensure_swap() {
+	is_ci || return 0
+	if swapon --show 2>/dev/null | grep -q .; then
+		return 0
+	fi
+	info "CI: enabling 1G swapfile"
+	if [[ ! -f /swapfile ]]; then
+		fallocate -l 1G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none
+		chmod 600 /swapfile
+		mkswap /swapfile >/dev/null
+	fi
+	swapon /swapfile 2>/dev/null || warn "Could not enable swap"
 }
 
 place_wordpress_files() {
@@ -464,6 +461,7 @@ main() {
 	MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-$(gen_password 32)}"
 	SITE_URL="$(get_site_url)"
 
+	ci_ensure_swap
 	install_wpcli
 
 	if [[ "$FORCE" != true ]] && wp_is_installed; then
@@ -474,7 +472,7 @@ main() {
 		exit 0
 	fi
 
-	info "apt update + install Apache, PHP, MariaDB, and tools..."
+	info "apt update + install Apache, PHP, and tools..."
 	run_cmd apt-get update
 	local pkgs=(apache2 php libapache2-mod-php php-mysql php-cli php-common
 		php-curl php-gd php-mbstring php-xml php-zip php-opcache curl wget ca-certificates)
@@ -488,9 +486,15 @@ main() {
 
 	run_cmd a2enmod rewrite headers
 	run_cmd systemctl enable apache2
-	run_cmd systemctl start apache2
-	[[ "$DRY_RUN" != true ]] && wait_for_active apache2
+	# Defer Apache start on CI until files are in place (saves RAM during MariaDB install)
+	if ! is_ci; then
+		run_cmd systemctl start apache2
+		[[ "$DRY_RUN" != true ]] && wait_for_active apache2
+	fi
 	tune_php_for_wordpress
+
+	# Fetch WordPress before MariaDB so CI runners are not at peak RAM during extract
+	download_wordpress
 
 	export DEBIAN_FRONTEND=noninteractive
 	export NEEDRESTART_MODE=a
@@ -501,6 +505,7 @@ main() {
 		run_cmd apt-get remove -y --purge mysql-server mysql-client || true
 		run_cmd apt-get autoremove -y || true
 	fi
+	info "Installing MariaDB..."
 	run_cmd apt-get install -y mariadb-server
 	run_cmd systemctl enable mariadb || run_cmd systemctl enable mysql || true
 	run_cmd systemctl start mariadb || run_cmd systemctl start mysql
@@ -543,8 +548,12 @@ EOF
 	fi
 
 	secure_mariadb_and_db
-	download_wordpress
 	place_wordpress_files
+
+	if is_ci; then
+		run_cmd systemctl start apache2
+		[[ "$DRY_RUN" != true ]] && wait_for_active apache2
+	fi
 
 	info "Writing wp-config.php..."
 	if [[ "$DRY_RUN" != true ]]; then
