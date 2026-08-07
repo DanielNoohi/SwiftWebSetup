@@ -19,14 +19,18 @@ jobs:
       image: ${{ matrix.container }}
     steps:
       - uses: actions/checkout@v5
-      - name: Install shellcheck + bash
+      - name: Install bash + pinned shellcheck
         run: |
           apt-get update
-          apt-get install -y shellcheck bash
+          apt-get install -y bash curl xz-utils ca-certificates
+          curl -fsSL https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz \
+            | tar -xJ
+          install -m 0755 shellcheck-v0.10.0/shellcheck /usr/local/bin/shellcheck
+          shellcheck --version
       - name: bash -n (syntax)
         run: |
           for f in install.sh host-install.sh web-install.sh docker-way.sh lib/common.sh; do bash -n "$f"; done
-      - name: shellcheck (fail on any finding)
+      - name: shellcheck (warnings treated as failures)
         run: |
           for f in install.sh host-install.sh web-install.sh docker-way.sh lib/common.sh; do
             shellcheck -x -S warning "$f"
