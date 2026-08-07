@@ -236,27 +236,39 @@ download_wordpress() {
 	fi
 	run_cmd rm -rf /tmp/swiftweb-wp
 	run_cmd mkdir -p /tmp/swiftweb-wp
-	# Stream extract to avoid keeping a full tarball + tree on tight CI disks/RAM
+
+	# GitHub-hosted runners are memory-tight once Apache+MariaDB are up.
 	if is_ci; then
-		sync || true
-		echo 3 >/proc/sys/vm/drop_caches 2>/dev/null || true
-		info "CI: streaming WordPress archive directly into /tmp/swiftweb-wp"
-		if ! wget -qO- https://wordpress.org/latest.tar.gz | tar -xz -C /tmp/swiftweb-wp; then
-			error "Streaming download/extract of WordPress failed"
-			free -m || true
-			df -h /tmp || true
-			exit 1
+		info "CI: ensuring swap + pausing Apache during extract"
+		if ! swapon --show 2>/dev/null | grep -q .; then
+			if [[ ! -f /swapfile ]]; then
+				fallocate -l 1G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=1024 status=none
+				chmod 600 /swapfile
+				mkswap /swapfile >/dev/null
+			fi
+			swapon /swapfile 2>/dev/null || warn "Could not enable swap"
 		fi
-	else
-		run_cmd wget -q -O /tmp/latest.tar.gz https://wordpress.org/latest.tar.gz
-		if ! gzip -t /tmp/latest.tar.gz 2>/dev/null; then
-			error "Downloaded file is not a valid gzip tarball"
-			exit 1
-		fi
-		info "Extracting WordPress archive..."
-		run_cmd tar -xzf /tmp/latest.tar.gz -C /tmp/swiftweb-wp
-		rm -f /tmp/latest.tar.gz 2>/dev/null || true
+		systemctl stop apache2 2>/dev/null || true
 	fi
+
+	info "Fetching WordPress tarball..."
+	run_cmd wget -q -O /tmp/latest.tar.gz https://wordpress.org/latest.tar.gz
+	if ! gzip -t /tmp/latest.tar.gz 2>/dev/null; then
+		error "Downloaded file is not a valid gzip tarball"
+		systemctl start apache2 2>/dev/null || true
+		exit 1
+	fi
+	info "Extracting WordPress archive..."
+	if ! tar -xzf /tmp/latest.tar.gz -C /tmp/swiftweb-wp; then
+		error "tar extract failed (check free memory/disk)"
+		free -m || true
+		df -h /tmp || true
+		systemctl start apache2 2>/dev/null || true
+		exit 1
+	fi
+	rm -f /tmp/latest.tar.gz 2>/dev/null || true
+	systemctl start apache2 2>/dev/null || true
+
 	[[ -f /tmp/swiftweb-wp/wordpress/wp-settings.php ]] || {
 		error "WordPress extract missing wp-settings.php"
 		exit 1
