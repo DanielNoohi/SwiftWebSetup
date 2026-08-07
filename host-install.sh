@@ -292,10 +292,42 @@ place_wordpress_files() {
 			clear_default_indexes "$WP_PATH"
 		fi
 	fi
-	run_cmd mkdir -p "$WP_PATH"
-	run_cmd cp -a /tmp/swiftweb-wp/wordpress/. "$WP_PATH/"
-	# Free extract tree ASAP (helps CI runners)
+	run_cmd mkdir -p "$(dirname "$WP_PATH")"
+
+	# On CI, pause MariaDB during the copy to avoid OOM-killer on small runners
+	local restarted_db=false
+	if is_ci; then
+		if systemctl is-active --quiet mariadb 2>/dev/null; then
+			info "CI: pausing MariaDB during WordPress file placement"
+			systemctl stop mariadb 2>/dev/null || true
+			restarted_db=true
+		elif systemctl is-active --quiet mysql 2>/dev/null; then
+			info "CI: pausing MySQL during WordPress file placement"
+			systemctl stop mysql 2>/dev/null || true
+			restarted_db=true
+		fi
+	fi
+
+	# Same-filesystem directory rename is cheap; fall back to cp across devices
+	rm -rf "$WP_PATH"
+	if mv /tmp/swiftweb-wp/wordpress "$WP_PATH" 2>/dev/null; then
+		info "Placed WordPress via mv"
+	else
+		run_cmd mkdir -p "$WP_PATH"
+		run_cmd cp -a /tmp/swiftweb-wp/wordpress/. "$WP_PATH/"
+	fi
 	rm -rf /tmp/swiftweb-wp 2>/dev/null || true
+
+	if [[ "$restarted_db" == true ]]; then
+		info "CI: restarting database after file placement"
+		systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null || true
+		local i
+		for ((i = 0; i < 30; i++)); do
+			mariadb_socket <<<"SELECT 1;" >/dev/null 2>&1 && break
+			sleep 1
+		done
+	fi
+
 	clear_default_indexes "$WP_PATH"
 	[[ -f "$WP_PATH/index.php" ]] || {
 		error "WordPress index.php missing after copy"
