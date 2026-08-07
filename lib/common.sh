@@ -214,12 +214,13 @@ verify_wordpress_http() {
 		# Follow redirects so a 302 homepage still yields real WP HTML
 		body=$(curl -fsSL -L --max-time 25 "$u" 2>/dev/null || true)
 		code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 "$u" 2>/dev/null || echo "000")
-		login_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 "${u%/}/wp-login.php" 2>/dev/null || echo "000")
+		login_code=$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 25 "${u%/}/wp-login.php" 2>/dev/null || echo "000")
 
 		if echo "$body" | grep -qiE 'It works!|Apache2 (Ubuntu|Debian) Default Page|Welcome to nginx!'; then
 			continue
 		fi
-		if [[ "$login_code" != "200" ]]; then
+		# wp-login.php may 302 depending on siteurl; accept success-class codes
+		if [[ "$login_code" != "200" && "$login_code" != "301" && "$login_code" != "302" ]]; then
 			continue
 		fi
 		# Final homepage after redirects, or any WP asset / login marker
@@ -233,6 +234,7 @@ verify_wordpress_http() {
 	if [[ "$ok" != true ]]; then
 		error "VERIFICATION FAILED: could not confirm WordPress at ${url}"
 		error "Debug: curl -I ${url} => $(curl -sI --max-time 10 "$url" 2>/dev/null | head -n 5 | tr '\n' ' ')"
+		error "Debug: wp-login => HTTP $(curl -s -o /dev/null -w '%{http_code}' -L --max-time 10 "${url%/}/wp-login.php" 2>/dev/null || echo 000)"
 		error "Debug: body head => $(curl -fsSL -L --max-time 10 "$url" 2>/dev/null | head -c 240 | tr '\n' ' ')"
 		return 1
 	fi

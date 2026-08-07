@@ -35,10 +35,10 @@ SSL=false
 BACKUP_ONLY=false
 FAIL2BAN=false
 AUTO_UPDATES=false
-DOMAIN=""
-SITE_TITLE=""
-ADMIN_USER=""
-ADMIN_EMAIL=""
+DOMAIN="${DOMAIN:-}"
+SITE_TITLE="${SITE_TITLE:-}"
+ADMIN_USER="${ADMIN_USER:-}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-}"
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 	while [[ $# -gt 0 ]]; do
@@ -241,11 +241,13 @@ download_wordpress() {
 	fi
 	run_cmd rm -rf /tmp/swiftweb-wp
 	run_cmd mkdir -p /tmp/swiftweb-wp
+	info "Extracting WordPress archive..."
 	run_cmd tar -xzf /tmp/latest.tar.gz -C /tmp/swiftweb-wp
 	[[ -f /tmp/swiftweb-wp/wordpress/wp-settings.php ]] || {
 		error "WordPress extract missing wp-settings.php"
 		exit 1
 	}
+	success "WordPress core extracted"
 }
 
 place_wordpress_files() {
@@ -446,8 +448,15 @@ main() {
 
 	info "apt update + install Apache, PHP, MariaDB, and tools..."
 	run_cmd apt-get update
-	run_cmd apt-get install -y apache2 php libapache2-mod-php php-mysql php-cli php-common \
-		php-curl php-gd php-mbstring php-xml php-zip php-opcache curl wget ca-certificates ufw sudo
+	local pkgs=(apache2 php libapache2-mod-php php-mysql php-cli php-common
+		php-curl php-gd php-mbstring php-xml php-zip php-opcache curl wget ca-certificates)
+	# UFW is unused in CI (configure_firewall no-ops); skip to reduce runner pressure
+	if ! is_ci; then
+		pkgs+=(ufw)
+	fi
+	# sudo is required for www-data WP-CLI; usually preinstalled on VPS images
+	command -v sudo >/dev/null 2>&1 || pkgs+=(sudo)
+	run_cmd apt-get install -y "${pkgs[@]}"
 
 	run_cmd a2enmod rewrite headers
 	run_cmd systemctl enable apache2

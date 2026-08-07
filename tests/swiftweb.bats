@@ -121,3 +121,9 @@ setup() {
 @test "collect_site_config exists in common.sh" {
 	grep -q 'collect_site_config' "$REPO_ROOT/lib/common.sh"
 }
+
+@test "env SITE_TITLE is not clobbered by empty assignment" {
+	grep -q 'SITE_TITLE="${SITE_TITLE:-}"' "$REPO_ROOT/host-install.sh"
+	grep -q 'SITE_TITLE="${SITE_TITLE:-}"' "$REPO_ROOT/docker-way.sh"
+}
+
