@@ -289,7 +289,12 @@ complete_wp_install() {
 		dc "$dir" exec -T wpcli wp option update siteurl "$url" --path=/var/www/html --allow-root || true
 		dc "$dir" exec -T wpcli wp option update home "$url" --path=/var/www/html --allow-root || true
 	fi
+	# Ensure siteurl/home match the published URL (important for port != 80)
+	dc "$dir" exec -T wpcli wp option update siteurl "$url" --path=/var/www/html --allow-root || true
+	dc "$dir" exec -T wpcli wp option update home "$url" --path=/var/www/html --allow-root || true
 	dc "$dir" exec -T wpcli wp plugin delete akismet --path=/var/www/html --allow-root || true
+	# Give Apache a moment after install before HTTP verify
+	sleep 3
 	return 0
 }
 

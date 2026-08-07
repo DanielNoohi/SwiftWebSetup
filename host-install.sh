@@ -468,9 +468,14 @@ main() {
 	run_cmd systemctl enable mariadb || run_cmd systemctl enable mysql || true
 	run_cmd systemctl start mariadb || run_cmd systemctl start mysql
 	if [[ "$DRY_RUN" != true ]]; then
-		wait_for_active mariadb 60 || wait_for_active mysql 60
+		if ! wait_for_active mariadb 60 && ! wait_for_active mysql 60; then
+			error "Neither mariadb nor mysql became active"
+			systemctl status mariadb --no-pager || systemctl status mysql --no-pager || true
+			exit 1
+		fi
 		# Wait until the unix socket actually accepts queries (service "active" is not enough)
-		local ready=0 i=0
+		local ready=0
+		local i
 		for ((i = 0; i < 60; i++)); do
 			if mariadb_socket <<<"SELECT 1;" >/dev/null 2>&1; then
 				ready=1

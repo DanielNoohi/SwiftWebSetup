@@ -211,27 +211,29 @@ verify_wordpress_http() {
 
 	local u ok=false
 	for u in "${urls[@]}"; do
-		body=$(curl -fsSL --max-time 20 "$u" 2>/dev/null || true)
-		code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$u" 2>/dev/null || echo "000")
+		# Follow redirects so a 302 homepage still yields real WP HTML
+		body=$(curl -fsSL -L --max-time 25 "$u" 2>/dev/null || true)
+		code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 "$u" 2>/dev/null || echo "000")
+		login_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 "${u%/}/wp-login.php" 2>/dev/null || echo "000")
+
 		if echo "$body" | grep -qiE 'It works!|Apache2 (Ubuntu|Debian) Default Page|Welcome to nginx!'; then
 			continue
 		fi
-		if [[ "$code" != "200" && "$code" != "301" && "$code" != "302" ]]; then
+		if [[ "$login_code" != "200" ]]; then
 			continue
 		fi
-		if ! echo "$body" | grep -qE 'wp-content|wp-includes|wp-json|wordpress'; then
-			continue
-		fi
-		login_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "${u%/}/wp-login.php" 2>/dev/null || echo "000")
-		if [[ "$login_code" == "200" ]]; then
+		# Final homepage after redirects, or any WP asset / login marker
+		if echo "$body" | grep -qiE 'wp-content|wp-includes|wp-json|wordpress|wp-login|Hello world'; then
 			ok=true
-			success "Verified: ${u} serves WordPress (homepage + wp-login.php)"
+			success "Verified: ${u} serves WordPress (homepage + wp-login.php ${login_code}, root HTTP ${code})"
 			break
 		fi
 	done
 
 	if [[ "$ok" != true ]]; then
 		error "VERIFICATION FAILED: could not confirm WordPress at ${url}"
+		error "Debug: curl -I ${url} => $(curl -sI --max-time 10 "$url" 2>/dev/null | head -n 5 | tr '\n' ' ')"
+		error "Debug: body head => $(curl -fsSL -L --max-time 10 "$url" 2>/dev/null | head -c 240 | tr '\n' ' ')"
 		return 1
 	fi
 	return 0
