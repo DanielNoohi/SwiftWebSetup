@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # ── Static analysis: shellcheck on the supported Ubuntu matrix ─────
+  shellcheck:
+    name: shellcheck (${{ matrix.os }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        container: [ubuntu:20.04, ubuntu:22.04, ubuntu:24.04]
+    container:
+      image: ${{ matrix.container }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck + bash
+        run: |
+          apt-get update
+          apt-get install -y shellcheck bash
+      - name: bash -n (syntax)
+        run: |
+          for f in install.sh web-install.sh docker-way.sh; do bash -n "$f"; done
+      - name: shellcheck (fail on any finding)
+        run: |
+          for f in install.sh web-install.sh docker-way.sh; do
+            shellcheck -x "$f"
+          done
+
+  # ── Formatting: shfmt diff check ─────────────────────────────────────
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shfmt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shfmt
+      - name: Check formatting
+        run: |
+          shfmt -d install.sh web-install.sh docker-way.sh
+          echo "shfmt check done (empty diff above = compliant)"
+
+  # ── Unit tests (bats) ────────────────────────────────────────────────
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bats
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats
+      - name: Run bats tests
+        run: bats --tap tests
+
+  # ── E2E: host LAMP path (real WordPress install, verified) ───────────
+  e2e-lamp:
+    runs-on: ubuntu-latest
+    needs: [shellcheck, format]
+    env:
+      SWIFTWEB_DOMAIN: ""
+      SWIFTWEB_TITLE: "CI WordPress Site"
+      SWIFTWEB_ADMIN: "ciadmin"
+      SWIFTWEB_EMAIL: "ci@example.com"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run web-install.sh (unattended)
+        run: |
+          sudo SITE_TITLE="$SWIFTWEB_TITLE" \
+               ADMIN_USER="$SWIFTWEB_ADMIN" \
+               ADMIN_EMAIL="$SWIFTWEB_EMAIL" \
+               bash web-install.sh --unattended
+        timeout-minutes: 20
+      - name: Verify a real WordPress front page (not Apache test page) + creds 0600
+        run: |
+          # WordPress homepage references its own wp-content/wp-includes/assets only if
+          # real WP files are served; the Apache default/"It works!" page does not.
+          body=$(curl -fsSL http://127.0.0.1/ || true)
+          echo "$body" | grep -qE 'wp-content|wp-includes|wp-json' \
+            && echo "OK: WordPress homepage served" \
+            || { echo "FAIL: non-WordPress page"; exit 1; }
+          # wp-login.php is WordPress-specific (returns 200), not a 404/test page
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/wp-login.php)
+          [ "$code" = "200" ] && echo "OK: wp-login.php 200" || { echo "FAIL: wp-login.php -> $code"; exit 1; }
+          # credentials must be 0600 root-only
+          sudo test -f /root/swiftwebsetup-credentials.txt || { echo "missing creds file"; exit 1; }
+          perms=$(sudo stat -c '%a' /root/swiftwebsetup-credentials.txt)
+          [ "$perms" = "600" ] && echo "OK: creds 0600" || { echo "FAIL: creds perms $perms"; exit 1; }
+
+  # ── E2E: Docker compose path (wpcli-driven, verified) ─────────────────
+  e2e-docker:
+    runs-on: ubuntu-latest
+    needs: [shellcheck, format]
+    env:
+      SWIFTWEB_TITLE: "CI Docker WordPress"
+      SWIFTWEB_ADMIN: "ciadmin"
+      SWIFTWEB_EMAIL: "ci@example.com"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run docker-way.sh (unattended, non-privileged port 8080)
+        run: |
+          # GitHub runners have Docker preinstalled; script detects it.
+          sudo SITE_TITLE="$SWIFTWEB_TITLE" \
+               ADMIN_USER="$SWIFTWEB_ADMIN" \
+               ADMIN_EMAIL="$SWIFTWEB_EMAIL" \
+               bash docker-way.sh --unattended --port 8080
+        timeout-minutes: 20
+      - name: Prove WordPress site via Docker (not nginx welcome page)
+        run: |
+          body=$(curl -fsSL http://127.0.0.1:8080/ || true)
+          echo "$body" | grep -qE 'wp-content|wp-includes|wp-json' \
+            && echo "OK: WordPress served by Docker" \
+            || { echo "FAIL: non-WordPress page from Docker"; exit 1; }
+      - name: Show container status
+        run: docker compose -f /opt/swiftweb/docker-compose.yml ps
