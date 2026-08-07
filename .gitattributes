@@ -1,0 +1,5 @@
+# Force LF line endings for shell scripts (CRLF breaks bash on Linux)
+*.sh text eol=lf
+*.bash text eol=lf
+README.md text
+LICENSE text

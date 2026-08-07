@@ -1,124 +1,92 @@
 # SwiftWebSetup
 
-Rapid deployment scripts for setting up web servers on Linux.
+One-command raw WordPress production bootstrap for Ubuntu — official WordPress from wordpress.org, fully installed and ready to use. No test pages, no "It works!", no install wizard left for you to click through.
 
-## Features
+## What you get
 
-* **web-install.sh** - Automated LAMP stack with WordPress
-  * Apache2 + PHP 8.x + MariaDB
-  * WordPress latest with secure configuration
-  * Idempotent, safe for re-runs
-  * Dry-run and unattended modes
-  * Secure password generation and logging
+A **fully fledged WordPress website** — not a demo:
 
-* **docker-way.sh** - Docker-based Nginx deployment
-  * Latest nginx container
-  * Persistent volume at `/data`
-  * Auto-restart on failure
-  * Configurable container name and port
-  * Dry-run and unattended modes
+- Official WordPress core from https://wordpress.org/latest.tar.gz (raw, unmodified)
+- MariaDB database + least-privilege dedicated DB user
+- `wp-config.php` fully written (DB_* + fresh salts via `wp config shuffle-salts`)
+- Installation **completed automatically** via WP-CLI (`wp core install`) with site title, admin user + strong password, admin email, and siteurl/home set to your server IP or domain
+- Pretty permalinks working (`/%postname%/`) with Apache rewrite + `.htaccess` `AllowOverride All`
+- Security hardening: UFW (SSH + HTTP/HTTPS), hardened `.htaccess` (security headers, wp-config protection, no directory listing), secure file ownership/permissions
+- Root-only credentials file (`/root/swiftwebsetup-credentials.txt`, 0600)
 
-## Quick Start
+Visiting `http://SERVER_IP` shows the WordPress front page. Done.
 
-### Traditional LAMP + WordPress
+## One-command setup
 
 ```bash
-git clone https://github.com/DanielNoohi/SwiftWebSetup.git
-cd SwiftWebSetup
-sudo bash web-install.sh
+curl -fsSL https://raw.githubusercontent.com/DanielNoohi/SwiftWebSetup/main/install.sh -o /tmp/swiftweb-install.sh && sudo bash /tmp/swiftweb-install.sh
 ```
 
-**Unattended (for automation):**
-```bash
-MYSQL_ROOT_PASSWORD="your-root-pw" WP_DB_PASSWORD="your-wp-pw" \
-sudo bash web-install.sh --unattended
-```
+(Interactive mode needs the two-step form so the prompts can read your terminal. For fully unattended installs you can pipe directly.)
 
-**Dry-run (preview changes):**
-```bash
-sudo bash web-install.sh --dry-run
-```
-
-### Docker Nginx
+### Unattended (automation / CI)
 
 ```bash
-git clone https://github.com/DanielNoohi/SwiftWebSetup.git
-cd SwiftWebSetup
-sudo bash docker-way.sh
+curl -fsSL https://raw.githubusercontent.com/DanielNoohi/SwiftWebSetup/main/install.sh | sudo SITE_TITLE="My Site" ADMIN_EMAIL="me@example.com" DOMAIN="example.com" bash -s -- --unattended
 ```
 
-**Custom container name and port:**
-```bash
-sudo bash docker-way.sh --name my-site --port 8080
-```
+### Options
 
-**Unattended:**
-```bash
-sudo bash docker-way.sh --unattended --name my-site --port 8080
-```
+| Flag | Effect |
+|------|--------|
+| `--docker` | Deploy WordPress + MariaDB as Docker containers instead of host LAMP |
+| `--unattended` | Non-interactive (all inputs from env vars) |
+| `--domain DOMAIN` | Set site domain (default: server IP) |
+| `--title TITLE` | WordPress site title |
+| `--admin USER` | Admin username |
+| `--email EMAIL` | Admin email |
+| `--dry-run` | Preview changes without executing |
 
-**Dry-run:**
-```bash
-sudo bash docker-way.sh --dry-run
-```
+### Environment variables (unattended)
+
+`SITE_TITLE`, `ADMIN_USER`, `ADMIN_PASSWORD`, `ADMIN_EMAIL`, `DOMAIN`, `WP_DB_NAME`, `WP_DB_USER`, `WP_DB_PASSWORD`, `MYSQL_ROOT_PASSWORD`. Any password not provided is auto-generated (32 chars, `/dev/urandom`-seeded via Python `secrets`) and saved to the root-only credentials file.
+
+## What it installs (LAMP path, web-install.sh)
+
+1. **System**: `apt update`, Apache2, PHP 8.x + extensions (mysql, curl, gd, mbstring, xml, zip, opcache, intl, imagick with graceful fallback), MariaDB server
+2. **Database**: MariaDB hardened (root password set, anonymous users removed, test DB dropped — MariaDB 10.5+ compatible auth), WordPress DB + least-privilege user created
+3. **WordPress**: official core downloaded, extracted to `/var/www/html` (previous content backed up, not destroyed), `wp-config.php` written via WP-CLI, salts shuffled
+4. **Install**: WP-CLI `wp core install` completes the site (idempotent — skips if already installed), permalinks set, default plugins/themes cleaned
+5. **Hardening**: UFW firewall, `.htaccess` with security headers + rewrite rules, `www-data` ownership, 755/644 permissions
+
+## Docker path (docker-way.sh)
+
+- Docker + Compose plugin installed if missing
+- `mariadb:10.11` + `wordpress:latest` containers with healthchecks, named volumes, restart policy
+- WP-CLI runs inside the container to complete the install (`wp core install`, permalinks, cleanup)
+- Project in `/opt/<name>/` with `docker-compose.yml` + 0600 `.env`
+- Credentials in `/root/swiftwebsetup-docker-credentials.txt`
+
+## Idempotency & safety
+
+- Re-runs are safe: existing `/var/www/html` is backed up (timestamped copy) before replacement, `wp core install` skips if already installed
+- All stateful changes guarded by `set -euo pipefail` — script fails fast, never half-installs
+- `run_cmd` uses proper array execution — no `eval`, no quoting/command-injection issues
+- CRLF self-heal: scripts converted from Windows line endings if edited on Windows
+- Dry-run mode previews every step
 
 ## Requirements
 
-* Ubuntu Linux (tested on 20.04, 22.04, 24.04)
-* Root/sudo access
-* Internet access for package downloads
-* Docker (for `docker-way.sh` only)
+- Ubuntu 20.04 / 22.04 / 24.04
+- Root or sudo access
+- Outbound internet access (apt, wordpress.org, wp-cli)
 
-## Script Details
+## Logs & credentials
 
-### web-install.sh
+| Artifact | Path |
+|----------|------|
+| LAMP credentials (0600) | `/root/swiftwebsetup-credentials.txt` |
+| Docker credentials (0600) | `/root/swiftwebsetup-docker-credentials.txt` |
+| LAMP log | `/var/log/swiftwebsetup-web-install.log` |
+| Docker log | `/var/log/swiftwebsetup-docker-way.log` |
 
-Installs and configures:
-- Apache2 with rewrite module
-- PHP 8.x with common extensions (MySQL, cURL, GD, MBString, XML, Zip, OPcache)
-- MariaDB 10.x (MySQL-compatible)
-- WordPress latest from wordpress.org
-- UFW firewall (SSH + HTTP/HTTPS)
-- Secure file permissions (www-data:www-data, 755/644)
-
-Creates:
-- WordPress database and dedicated user
-- wp-config.php with generated salts
-- Apache virtual host with AllowOverride All
-- Log file at `/var/log/swiftwebsetup-web-install.log`
-
-**Outputs credentials** to console and log file on first run.
-
-### docker-way.sh
-
-Deploys:
-- nginx:latest container
-- Volume mount: `/data` → `/usr/share/nginx/html`
-- Port mapping: host port → container port 80
-- Restart policy: `unless-stopped`
-
-Creates:
-- Data directory at `/data` with correct ownership
-- Log file at `/var/log/swiftwebsetup-docker-way.log`
-
-## Security Notes
-
-* Passwords are generated using `/dev/urandom` (32 chars, alphanumeric + symbols)
-* MariaDB root user is secured (no anonymous users, no test database, localhost-only root)
-* WordPress salts fetched from WordPress.org API
-* File permissions follow least-privilege principle
-* UFW allows only SSH and HTTP/HTTPS by default
-
-## Logs
-
-Both scripts write detailed logs to:
-- `/var/log/swiftwebsetup-web-install.log`
-- `/var/log/swiftwebsetup-docker-way.log`
+Secrets go only to the 0600 credentials file and the terminal — never to the world-readable log.
 
 ## License
 
-MIT License - See [LICENSE](LICENSE) for details.
-
-## Author
-
-Daniel Noohi - https://github.com/DanielNoohi
+MIT — see [LICENSE](LICENSE).
