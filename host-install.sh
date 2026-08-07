@@ -274,7 +274,7 @@ place_wordpress_files() {
 # MariaDB admin via local root socket (script runs as root on Ubuntu).
 # Avoid depending on PASSWORD() / plugin switches that break on CI images.
 mariadb_socket() {
-	mariadb --protocol=socket -u root "$@"
+	mariadb --protocol=socket -u root
 }
 
 secure_mariadb_and_db() {
