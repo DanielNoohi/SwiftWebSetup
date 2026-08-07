@@ -123,6 +123,11 @@ PY
 }
 
 server_ip() {
+	# Prefer loopback in CI so verify curls a reachable address on the runner
+	if [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+		printf '%s' "127.0.0.1"
+		return 0
+	fi
 	hostname -I 2>/dev/null | awk '{print $1}'
 }
 

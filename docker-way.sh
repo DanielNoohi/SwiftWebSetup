@@ -282,6 +282,10 @@ verify_site() {
 }
 
 configure_firewall() {
+	if [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+		info "CI environment detected — skipping UFW"
+		return 0
+	fi
 	info "Configuring UFW (SSH first, then WordPress port)..."
 	run_cmd ufw allow OpenSSH
 	run_cmd ufw allow "${WORDPRESS_PORT}/tcp"

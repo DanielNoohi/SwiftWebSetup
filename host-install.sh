@@ -139,6 +139,10 @@ wp_is_installed() {
 }
 
 configure_firewall() {
+	if [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+		info "CI environment detected — skipping UFW"
+		return 0
+	fi
 	info "Configuring UFW (SSH first, then HTTP/HTTPS, then enable)..."
 	run_cmd ufw allow OpenSSH
 	run_cmd ufw allow 'Apache Full'
