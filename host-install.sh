@@ -271,16 +271,10 @@ place_wordpress_files() {
 	rm -f "$WP_PATH/index.html" 2>/dev/null || true
 }
 
-# MariaDB: prefer socket on fresh Ubuntu, then password auth (reads SQL from stdin)
-mariadb_exec() {
-	if mariadb -u root -e "SELECT 1" &>/dev/null; then
-		mariadb -u root
-	elif [[ -n "${MYSQL_ROOT_PASSWORD:-}" ]] && MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mariadb -u root -e "SELECT 1" &>/dev/null; then
-		MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mariadb -u root
-	else
-		error "Cannot authenticate to MariaDB as root (socket or password)"
-		return 1
-	fi
+# MariaDB admin via local root socket (script runs as root on Ubuntu).
+# Avoid depending on PASSWORD() / plugin switches that break on CI images.
+mariadb_socket() {
+	mariadb --protocol=socket -u root "$@"
 }
 
 secure_mariadb_and_db() {
@@ -289,28 +283,24 @@ secure_mariadb_and_db() {
 		return 0
 	fi
 
-	info "Securing MariaDB root and creating WordPress database..."
-	# Set password when possible; ignore if already password-auth with unknown pass and we have MYSQL_ROOT_PASSWORD
-	mariadb_exec <<SQL || true
+	info "Configuring MariaDB and WordPress database..."
+
+	# Best-effort root password for the credentials file; never abort install on this.
+	mariadb_socket <<SQL || warn "Could not set MariaDB root password (unix_socket may remain); continuing"
 ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}';
+FLUSH PRIVILEGES;
+SQL
+
+	mariadb_socket <<SQL
 DELETE FROM mysql.user WHERE User='';
 DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost','127.0.0.1','::1');
 DROP DATABASE IF EXISTS test;
 FLUSH PRIVILEGES;
 SQL
 
-	# After ALTER, prefer password
-	local db_cmd=(mariadb -u root)
-	if MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mariadb -u root -e "SELECT 1" &>/dev/null; then
-		db_cmd=(env MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mariadb -u root)
-	elif ! mariadb -u root -e "SELECT 1" &>/dev/null; then
-		error "MariaDB root login failed after secure step"
-		exit 1
-	fi
-
 	if [[ "$FORCE" == true ]]; then
 		info "Force mode: DROP + recreate WordPress database ${WP_DB_NAME}"
-		"${db_cmd[@]}" <<SQL
+		mariadb_socket <<SQL
 DROP DATABASE IF EXISTS \`${WP_DB_NAME}\`;
 CREATE DATABASE \`${WP_DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '${WP_DB_USER}'@'localhost' IDENTIFIED BY '${WP_DB_PASSWORD}';
@@ -319,7 +309,7 @@ GRANT ALL PRIVILEGES ON \`${WP_DB_NAME}\`.* TO '${WP_DB_USER}'@'localhost';
 FLUSH PRIVILEGES;
 SQL
 	else
-		"${db_cmd[@]}" <<SQL
+		mariadb_socket <<SQL
 CREATE DATABASE IF NOT EXISTS \`${WP_DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '${WP_DB_USER}'@'localhost' IDENTIFIED BY '${WP_DB_PASSWORD}';
 ALTER USER '${WP_DB_USER}'@'localhost' IDENTIFIED BY '${WP_DB_PASSWORD}';
@@ -463,10 +453,19 @@ main() {
 	tune_php_for_wordpress
 
 	export DEBIAN_FRONTEND=noninteractive
+	# GitHub runners / some images ship MySQL — remove it so MariaDB can install cleanly
+	if dpkg -l mysql-server 2>/dev/null | grep -q '^ii'; then
+		warn "Removing conflicting mysql-server package..."
+		run_cmd systemctl stop mysql || true
+		run_cmd apt-get remove -y --purge mysql-server mysql-client || true
+		run_cmd apt-get autoremove -y || true
+	fi
 	run_cmd apt-get install -y mariadb-server
 	run_cmd systemctl enable mariadb
 	run_cmd systemctl start mariadb
 	[[ "$DRY_RUN" != true ]] && wait_for_active mariadb
+	# Give MariaDB a moment after start on slow CI disks
+	[[ "$DRY_RUN" != true ]] && sleep 2
 
 	secure_mariadb_and_db
 	download_wordpress

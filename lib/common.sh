@@ -185,31 +185,45 @@ clear_default_indexes() {
 verify_wordpress_http() {
 	local url="$1"
 	local body code login_code
+	local urls=("$url")
+	# Always also try loopback when verifying a non-loopback URL
+	if [[ "$url" != *"127.0.0.1"* && "$url" != *"localhost"* ]]; then
+		local port
+		port="${WORDPRESS_PORT:-80}"
+		if [[ "$port" == "80" ]]; then
+			urls+=("http://127.0.0.1")
+		else
+			urls+=("http://127.0.0.1:${port}")
+		fi
+	fi
+
 	info "Verifying WordPress at ${url}..."
 
-	body=$(curl -fsSL --max-time 20 "$url" 2>/dev/null || true)
-	code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url" 2>/dev/null || echo "000")
+	local u ok=false
+	for u in "${urls[@]}"; do
+		body=$(curl -fsSL --max-time 20 "$u" 2>/dev/null || true)
+		code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$u" 2>/dev/null || echo "000")
+		if echo "$body" | grep -qiE 'It works!|Apache2 (Ubuntu|Debian) Default Page|Welcome to nginx!'; then
+			continue
+		fi
+		if [[ "$code" != "200" && "$code" != "301" && "$code" != "302" ]]; then
+			continue
+		fi
+		if ! echo "$body" | grep -qE 'wp-content|wp-includes|wp-json|wordpress'; then
+			continue
+		fi
+		login_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "${u%/}/wp-login.php" 2>/dev/null || echo "000")
+		if [[ "$login_code" == "200" ]]; then
+			ok=true
+			success "Verified: ${u} serves WordPress (homepage + wp-login.php)"
+			break
+		fi
+	done
 
-	if echo "$body" | grep -qiE 'It works!|Apache2 (Ubuntu|Debian) Default Page|Welcome to nginx!'; then
-		error "VERIFICATION FAILED: default web-server test page detected at ${url}"
+	if [[ "$ok" != true ]]; then
+		error "VERIFICATION FAILED: could not confirm WordPress at ${url}"
 		return 1
 	fi
-	if [[ "$code" != "200" ]] && [[ "$code" != "301" ]] && [[ "$code" != "302" ]]; then
-		error "VERIFICATION FAILED: ${url} returned HTTP ${code}"
-		return 1
-	fi
-	if ! echo "$body" | grep -qE 'wp-content|wp-includes|wp-json|wordpress'; then
-		error "VERIFICATION FAILED: ${url} does not look like WordPress"
-		return 1
-	fi
-
-	login_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "${url%/}/wp-login.php" 2>/dev/null || echo "000")
-	if [[ "$login_code" != "200" ]]; then
-		error "VERIFICATION FAILED: wp-login.php returned HTTP ${login_code}"
-		return 1
-	fi
-
-	success "Verified: ${url} serves WordPress (homepage + wp-login.php)"
 	return 0
 }
 

@@ -226,18 +226,21 @@ dc() {
 
 complete_wp_install() {
 	local dir="$1" url="$2"
-	info "Waiting for wpcli + WordPress files..."
-	local t=180 i=0
+	info "Waiting for WordPress HTTP + wpcli..."
+	local t=240 i=0
 	while ((i < t)); do
-		if dc "$dir" exec -T wpcli wp core version --path=/var/www/html --allow-root >/dev/null 2>&1; then
-			break
+		if curl -fsSL --max-time 5 "http://127.0.0.1:${WORDPRESS_PORT}/" >/dev/null 2>&1 ||
+			curl -fsSL --max-time 5 "http://127.0.0.1:${WORDPRESS_PORT}/wp-admin/install.php" >/dev/null 2>&1; then
+			if dc "$dir" exec -T wpcli wp core version --path=/var/www/html --allow-root >/dev/null 2>&1; then
+				break
+			fi
 		fi
-		sleep 2
-		((i += 2)) || true
+		sleep 3
+		((i += 3)) || true
 	done
 	if ((i >= t)); then
-		error "wpcli container did not become ready in time"
-		dc "$dir" logs wpcli 2>/dev/null | tail -30 || true
+		error "WordPress/wpcli did not become ready in time"
+		dc "$dir" logs --tail=40 || true
 		return 1
 	fi
 
