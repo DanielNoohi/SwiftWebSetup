@@ -605,9 +605,7 @@ EOF
 	if [[ "$DRY_RUN" != true ]]; then
 		run_cmd cp "$WP_PATH/wp-config-sample.php" "$WP_PATH/wp-config.php"
 		if is_ci; then
-			info "CI: light permissions (skip chown -R of full tree)"
-			chmod -R a+rX "$WP_PATH" 2>/dev/null || true
-			chmod -R u+w "$WP_PATH/wp-content" 2>/dev/null || true
+			info "CI: keeping tarball permissions; WP-CLI uses --allow-root"
 		else
 			run_cmd chown -R www-data:www-data "$WP_PATH"
 			run_cmd chmod -R u=rwX,g=rX,o=rX "$WP_PATH"
