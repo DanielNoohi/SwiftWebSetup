@@ -7,7 +7,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ── Static analysis: shellcheck on the supported Ubuntu matrix ─────
   shellcheck:
     name: shellcheck (${{ matrix.container }})
     runs-on: ubuntu-latest
@@ -36,7 +35,6 @@ jobs:
             shellcheck -x -S warning "$f"
           done
 
-  # ── Formatting: shfmt diff check ─────────────────────────────────────
   format:
     runs-on: ubuntu-latest
     steps:
@@ -50,7 +48,6 @@ jobs:
           shfmt -d install.sh host-install.sh web-install.sh docker-way.sh lib/common.sh
           echo "shfmt check done (empty diff above = compliant)"
 
-  # ── Unit tests (bats) ────────────────────────────────────────────────
   unit:
     runs-on: ubuntu-latest
     steps:
@@ -62,7 +59,6 @@ jobs:
       - name: Run bats tests
         run: bats --tap tests
 
-  # ── E2E: native host install (real WordPress on the runner, verified) ─
   e2e-host:
     runs-on: ubuntu-latest
     needs: [shellcheck, format]
@@ -89,31 +85,18 @@ jobs:
           echo "host-install exit code: $ec"
           if sudo test -f /var/log/swiftwebsetup-web-install.log; then
             echo "----- installer log (tail) -----"
-            sudo tail -n 160 /var/log/swiftwebsetup-web-install.log
+            sudo tail -n 200 /var/log/swiftwebsetup-web-install.log
           else
             echo "no log file"
           fi
           if [ "$ec" -ne 0 ]; then
-            echo "::error::host-install exit=$ec"
-            # Single multi-line annotation (more reliable than many small ones)
-            {
-              echo "log_bytes=$(sudo wc -c /var/log/swiftwebsetup-web-install.log 2>/dev/null | awk '{print $1}')"
-              echo "extract_ls:"
-              sudo ls -la /var/www/swiftweb-extract 2>/dev/null || echo "(no extract dir)"
-              sudo ls -la /var/www/html 2>/dev/null | head -n 5 || echo "(no html dir)"
-              echo "--- log ---"
-              sudo tail -n 40 /var/log/swiftwebsetup-web-install.log 2>/dev/null || echo "(no log)"
-            } > /tmp/swiftweb-ci-host-fail.txt
-            python3 - <<'PY'
-from pathlib import Path
-text = Path("/tmp/swiftweb-ci-host-fail.txt").read_text(errors="replace")
-# GitHub annotations encode newlines as %0A
-print("::error::" + text.replace("%", "%25").replace("\r", "").replace("\n", "%0A"))
-PY
+            echo "::error::host-install failed with exit $ec — see log tail above"
+            sudo ls -la /var/www/swiftweb-extract 2>/dev/null || true
+            sudo ls -la /var/www/html 2>/dev/null | head -n 10 || true
           fi
           exit $ec
         timeout-minutes: 30
-      - name: Verify a real WordPress front page (not Apache test page) + creds 0600
+      - name: Verify a real WordPress front page + creds 0600
         run: |
           body=$(curl -fsSL -L http://127.0.0.1/ || true)
           echo "$body" | grep -qiE 'wp-content|wp-includes|wp-json|wordpress' \
@@ -125,7 +108,6 @@ PY
           perms=$(sudo stat -c '%a' /root/swiftwebsetup-credentials.txt)
           [ "$perms" = "600" ] && echo "OK: creds 0600" || { echo "FAIL: creds perms $perms"; exit 1; }
 
-  # ── E2E: Docker compose path (wpcli-driven, verified) ─────────────────
   e2e-docker:
     runs-on: ubuntu-latest
     needs: [shellcheck, format]
@@ -135,7 +117,7 @@ PY
       SWIFTWEB_EMAIL: "ci@example.com"
     steps:
       - uses: actions/checkout@v5
-      - name: Run docker-way.sh (unattended, non-privileged port 8080)
+      - name: Run docker-way.sh (unattended, port 8080)
         run: |
           set +e
           sudo --preserve-env=CI,GITHUB_ACTIONS,RUNNER_OS,RUNNER_NAME \
@@ -156,19 +138,13 @@ PY
           else
             echo "no log file"
           fi
-          docker compose -f /opt/swiftweb/docker-compose.yml ps || true
+          sudo docker compose -f /opt/swiftweb/docker-compose.yml ps || true
           if [ "$ec" -ne 0 ]; then
-            {
-              echo "docker-way exit=$ec"
-              sudo grep -E '\[ERROR\]|Command failed|VERIFICATION|Debug:' /var/log/swiftwebsetup-docker-way.log 2>/dev/null | tail -n 15
-              echo "---- tail ----"
-              sudo tail -n 12 /var/log/swiftwebsetup-docker-way.log 2>/dev/null
-              docker compose -f /opt/swiftweb/docker-compose.yml logs --tail=40 2>/dev/null || true
-            } | while IFS= read -r line; do echo "::error::$line"; done
+            echo "::error::docker-way failed with exit $ec — see log tail above"
           fi
           exit $ec
         timeout-minutes: 35
-      - name: Prove WordPress site via Docker (not nginx welcome page)
+      - name: Prove WordPress site via Docker
         run: |
           body=$(curl -fsSL -L http://127.0.0.1:8080/ || true)
           echo "$body" | grep -qiE 'wp-content|wp-includes|wp-json|wordpress' \
