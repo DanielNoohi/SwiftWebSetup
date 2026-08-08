@@ -96,9 +96,14 @@ jobs:
           if [ "$ec" -ne 0 ]; then
             {
               echo "host-install exit=$ec"
-              sudo grep -E '\[ERROR\]|Command failed|VERIFICATION|Extracting|tar extract|swap|OOM|Killed' /var/log/swiftwebsetup-web-install.log 2>/dev/null | tail -n 15
+              echo "---- free/df/dmesg ----"
+              free -m 2>/dev/null || true
+              df -h /var/www /var/tmp /tmp 2>/dev/null || true
+              dmesg -T 2>/dev/null | grep -iE 'oom|killed process' | tail -n 8 || true
+              echo "---- log hits ----"
+              sudo grep -E '\[ERROR\]|Command failed|VERIFICATION|Placing|Placed|Extracting|SUCCESS' /var/log/swiftwebsetup-web-install.log 2>/dev/null | tail -n 20
               echo "---- tail ----"
-              sudo tail -n 12 /var/log/swiftwebsetup-web-install.log 2>/dev/null
+              sudo tail -n 25 /var/log/swiftwebsetup-web-install.log 2>/dev/null
             } | while IFS= read -r line; do echo "::error::$line"; done
           fi
           exit $ec

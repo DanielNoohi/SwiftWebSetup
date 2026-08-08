@@ -245,37 +245,38 @@ download_wordpress() {
 		info "[DRY-RUN] Download + extract WordPress core (skipped)"
 		return 0
 	fi
-	# Prefer a disk-backed path: /tmp is often tmpfs on cloud runners and OOMs during extract
+	# Prefer a disk-backed path under /var (same FS as DocumentRoot).
+	# /tmp is often tmpfs on cloud runners and OOMs during extract+move.
 	local extract_root="${SWIFTWEB_EXTRACT_ROOT:-/var/tmp/swiftweb-wp}"
 	if is_ci; then
-		extract_root="/var/tmp/swiftweb-wp"
+		extract_root="/var/www/swiftweb-extract"
 	fi
 	run_cmd rm -rf "$extract_root"
 	run_cmd mkdir -p "$extract_root"
 
 	info "Fetching WordPress tarball..."
-	run_cmd wget -q -O /var/tmp/latest.tar.gz https://wordpress.org/latest.tar.gz
-	if ! gzip -t /var/tmp/latest.tar.gz 2>/dev/null; then
+	local tarball="/var/tmp/latest.tar.gz"
+	run_cmd wget -q -O "$tarball" https://wordpress.org/latest.tar.gz
+	if ! gzip -t "$tarball" 2>/dev/null; then
 		error "Downloaded file is not a valid gzip tarball"
 		exit 1
 	fi
 	info "Extracting WordPress archive to ${extract_root}..."
-	if ! tar -xzf /var/tmp/latest.tar.gz -C "$extract_root"; then
+	if ! tar -xzf "$tarball" -C "$extract_root"; then
 		error "tar extract failed (check free memory/disk)"
 		free -m || true
-		df -h /var/tmp || true
+		df -h "$(dirname "$extract_root")" || true
 		exit 1
 	fi
-	rm -f /var/tmp/latest.tar.gz 2>/dev/null || true
+	rm -f "$tarball" 2>/dev/null || true
 
 	[[ -f "${extract_root}/wordpress/wp-settings.php" ]] || {
 		error "WordPress extract missing wp-settings.php"
 		exit 1
 	}
-	# Stash path for place_wordpress_files
 	SWIFTWEB_WP_EXTRACT="${extract_root}/wordpress"
 	export SWIFTWEB_WP_EXTRACT
-	success "WordPress core extracted"
+	success "WordPress core extracted at ${SWIFTWEB_WP_EXTRACT}"
 }
 
 ci_ensure_swap() {
@@ -307,23 +308,26 @@ place_wordpress_files() {
 	fi
 	run_cmd mkdir -p "$(dirname "$WP_PATH")"
 
-	local src="${SWIFTWEB_WP_EXTRACT:-/var/tmp/swiftweb-wp/wordpress}"
-	[[ -d "$src" ]] || src="/tmp/swiftweb-wp/wordpress"
+	local src="${SWIFTWEB_WP_EXTRACT:-/var/www/swiftweb-extract/wordpress}"
+	[[ -d "$src" ]] || src="/var/tmp/swiftweb-wp/wordpress"
 	[[ -d "$src" ]] || {
-		error "WordPress extract not found at $src"
+		error "WordPress extract not found (SWIFTWEB_WP_EXTRACT=${SWIFTWEB_WP_EXTRACT:-unset})"
 		exit 1
 	}
 
-	# Same-filesystem directory rename is cheap; fall back to cp across devices
+	info "Placing WordPress from $src -> $WP_PATH"
 	rm -rf "$WP_PATH"
-	if mv "$src" "$WP_PATH" 2>/dev/null; then
-		info "Placed WordPress via mv from $src"
-		rm -rf "$(dirname "$src")" 2>/dev/null || true
+	info "Removed old $WP_PATH (if any)"
+	if mv "$src" "$WP_PATH"; then
+		info "Placed WordPress via mv"
+		rmdir "$(dirname "$src")" 2>/dev/null || rm -rf "$(dirname "$src")" 2>/dev/null || true
 	else
+		error "mv failed; falling back to cp -a"
 		run_cmd mkdir -p "$WP_PATH"
 		run_cmd cp -a "$src"/. "$WP_PATH/"
 		rm -rf "$(dirname "$src")" 2>/dev/null || true
 	fi
+	success "WordPress files are in $WP_PATH"
 
 	clear_default_indexes "$WP_PATH"
 	[[ -f "$WP_PATH/index.php" ]] || {
