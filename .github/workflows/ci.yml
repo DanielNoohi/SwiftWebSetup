@@ -105,10 +105,10 @@ jobs:
           if [ "$ec" -ne 0 ]; then
             # GitHub caps annotations (~10/step); emit log lines ONLY (highest signal).
             echo "::error::host-install failed with exit $ec"
-            sudo grep -E '\[ERROR\]|Command failed|VERIFICATION|MariaDB|Placing|Placed|Extracting|wp core|SUCCESS' \
+            sudo grep -E '\[ERROR\]|Command failed|VERIFICATION|MariaDB|Placing|Placed|place_wordpress|wp-config|shuffle|wp core|SUCCESS|Install did not' \
               /var/log/swiftwebsetup-web-install.log 2>/dev/null | tail -n 8 \
               | while IFS= read -r line; do echo "::error::$line"; done
-            sudo tail -n 5 /var/log/swiftwebsetup-web-install.log 2>/dev/null \
+            sudo tail -n 6 /var/log/swiftwebsetup-web-install.log 2>/dev/null \
               | while IFS= read -r line; do echo "::error::tail: $line"; done
           fi
           exit $ec

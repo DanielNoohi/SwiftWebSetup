@@ -112,7 +112,7 @@ EOF
 	done
 fi
 
-trap 'install_fail_hint' ERR
+trap 'install_fail_hint "$LINENO" "$BASH_COMMAND"' ERR
 
 run_wp() {
 	if [[ "$DRY_RUN" == true ]]; then
@@ -360,7 +360,46 @@ place_wordpress_files() {
 		error "WordPress index.php missing after copy"
 		exit 1
 	}
+	[[ -f "$WP_PATH/wp-config-sample.php" ]] || {
+		error "wp-config-sample.php missing after copy"
+		exit 1
+	}
 	rm -f "$WP_PATH/index.html" 2>/dev/null || true
+	info "place_wordpress_files: complete"
+}
+
+write_wp_config() {
+	if [[ "$DRY_RUN" == true ]]; then
+		info "[DRY-RUN] Write wp-config.php"
+		return 0
+	fi
+	info "Writing wp-config.php..."
+	run_cmd cp "$WP_PATH/wp-config-sample.php" "$WP_PATH/wp-config.php"
+
+	# Prefer a single WP-CLI create when available; fall back to in-place sed.
+	# Multiple `wp config set` calls on CI have been flaky under memory pressure.
+	if is_ci; then
+		info "CI: writing DB_* via sed (skip per-key wp config set)"
+		# Escape sed replacement safely (passwords are alphanumeric from gen_password)
+		sed -i \
+			-e "s/database_name_here/${WP_DB_NAME}/" \
+			-e "s/username_here/${WP_DB_USER}/" \
+			-e "s/password_here/${WP_DB_PASSWORD}/" \
+			"$WP_PATH/wp-config.php"
+		run_wp config shuffle-salts || {
+			error "wp config shuffle-salts failed"
+			exit 1
+		}
+	else
+		run_cmd chown -R www-data:www-data "$WP_PATH"
+		run_cmd chmod -R u=rwX,g=rX,o=rX "$WP_PATH"
+		run_wp config set DB_NAME "$WP_DB_NAME" --skip-check
+		run_wp config set DB_USER "$WP_DB_USER" --skip-check
+		run_wp config set DB_PASSWORD "$WP_DB_PASSWORD" --skip-check
+		run_wp config set DB_HOST "localhost" --skip-check
+		run_wp config shuffle-salts
+	fi
+	success "wp-config.php written"
 }
 
 # MariaDB admin via local root socket (script runs as root on Ubuntu).
@@ -619,23 +658,7 @@ EOF
 
 	secure_mariadb_and_db
 	place_wordpress_files
-
-	info "Writing wp-config.php..."
-	if [[ "$DRY_RUN" != true ]]; then
-		run_cmd cp "$WP_PATH/wp-config-sample.php" "$WP_PATH/wp-config.php"
-		if is_ci; then
-			info "CI: keeping tarball permissions; WP-CLI uses --allow-root"
-		else
-			run_cmd chown -R www-data:www-data "$WP_PATH"
-			run_cmd chmod -R u=rwX,g=rX,o=rX "$WP_PATH"
-		fi
-
-		run_wp config set DB_NAME "$WP_DB_NAME" --skip-check
-		run_wp config set DB_USER "$WP_DB_USER" --skip-check
-		run_wp config set DB_PASSWORD "$WP_DB_PASSWORD" --skip-check
-		run_wp config set DB_HOST "localhost" --skip-check
-		run_wp config shuffle-salts
-	fi
+	write_wp_config
 
 	write_vhost
 
@@ -649,7 +672,7 @@ EOF
 
 	if [[ "$DRY_RUN" != true ]]; then
 		if ! wp_is_installed; then
-			info "Running wp core install (as www-data)..."
+			info "Running wp core install..."
 			run_wp core install \
 				--url="$SITE_URL" \
 				--title="$SITE_TITLE" \

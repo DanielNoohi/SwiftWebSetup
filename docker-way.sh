@@ -105,7 +105,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 	done
 fi
 
-trap 'install_fail_hint' ERR
+trap 'install_fail_hint "$LINENO" "$BASH_COMMAND"' ERR
 
 install_docker() {
 	# GitHub-hosted runners already ship Docker + Compose — never reinstall there.

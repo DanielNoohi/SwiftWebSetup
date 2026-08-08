@@ -368,6 +368,9 @@ print_summary_card() {
 }
 
 install_fail_hint() {
-	error "Install did not finish cleanly."
+	# Prefer args from: trap 'install_fail_hint "$LINENO" "$BASH_COMMAND"' ERR
+	local line="${1:-${BASH_LINENO[0]:-?}}"
+	local cmd="${2:-${BASH_COMMAND:-unknown}}"
+	error "Install did not finish cleanly (line ${line}: ${cmd})."
 	warn "Fix the error above, then re-run with --force to wipe and retry (or restore from a backup)."
 }
