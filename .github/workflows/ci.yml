@@ -83,6 +83,19 @@ jobs:
             bash host-install.sh --unattended
           ec=$?
           echo "host-install exit code: $ec"
+          {
+            echo "## host-install exit=$ec"
+            if sudo test -f /var/log/swiftwebsetup-web-install.log; then
+              echo
+              echo "### installer log (tail)"
+              echo '```'
+              sudo tail -n 80 /var/log/swiftwebsetup-web-install.log
+              echo '```'
+            else
+              echo
+              echo "_no installer log file_"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
           if sudo test -f /var/log/swiftwebsetup-web-install.log; then
             echo "----- installer log (tail) -----"
             sudo tail -n 200 /var/log/swiftwebsetup-web-install.log
@@ -90,9 +103,13 @@ jobs:
             echo "no log file"
           fi
           if [ "$ec" -ne 0 ]; then
-            echo "::error::host-install failed with exit $ec — see log tail above"
-            sudo ls -la /var/www/swiftweb-extract 2>/dev/null || true
-            sudo ls -la /var/www/html 2>/dev/null | head -n 10 || true
+            # GitHub caps annotations (~10/step); emit log lines ONLY (highest signal).
+            echo "::error::host-install failed with exit $ec"
+            sudo grep -E '\[ERROR\]|Command failed|VERIFICATION|MariaDB|Placing|Placed|Extracting|wp core|SUCCESS' \
+              /var/log/swiftwebsetup-web-install.log 2>/dev/null | tail -n 8 \
+              | while IFS= read -r line; do echo "::error::$line"; done
+            sudo tail -n 5 /var/log/swiftwebsetup-web-install.log 2>/dev/null \
+              | while IFS= read -r line; do echo "::error::tail: $line"; done
           fi
           exit $ec
         timeout-minutes: 30

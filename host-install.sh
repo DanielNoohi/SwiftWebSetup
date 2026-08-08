@@ -208,25 +208,51 @@ tune_php_for_wordpress() {
 		return 0
 	fi
 	local conf dir
+	local mem_limit="256M" opcache_mem="128" opcache_interned="16" opcache_files="10000"
+	# Keep PHP lean on CI runners (Apache is started later; still avoid large opcache)
+	if is_ci; then
+		mem_limit="128M"
+		opcache_mem="32"
+		opcache_interned="8"
+		opcache_files="4000"
+	fi
 	for dir in /etc/php/*/apache2/conf.d /etc/php/*/cli/conf.d; do
 		[[ -d "$dir" ]] || continue
 		conf="${dir}/99-swiftweb-wordpress.ini"
-		cat >"$conf" <<'EOF'
+		cat >"$conf" <<EOF
 ; SwiftWebSetup — sensible WordPress defaults
-memory_limit = 256M
+memory_limit = ${mem_limit}
 upload_max_filesize = 64M
 post_max_size = 64M
 max_execution_time = 300
 max_input_time = 300
 opcache.enable = 1
-opcache.memory_consumption = 128
-opcache.interned_strings_buffer = 16
-opcache.max_accelerated_files = 10000
+opcache.memory_consumption = ${opcache_mem}
+opcache.interned_strings_buffer = ${opcache_interned}
+opcache.max_accelerated_files = ${opcache_files}
 EOF
 		info "PHP tuning: $conf"
 	done
 	if systemctl is-active --quiet apache2 2>/dev/null; then
 		systemctl reload apache2 2>/dev/null || true
+	fi
+}
+
+# GitHub-hosted images ship MySQL; MariaDB cannot share 3306 / mysql-common cleanly.
+purge_conflicting_mysql() {
+	is_ci || dpkg -l mysql-server 2>/dev/null | grep -q '^ii' || return 0
+	info "Stopping/removing conflicting MySQL packages (for MariaDB)..."
+	systemctl stop mysql mysqld 2>/dev/null || true
+	# Best-effort purge; ignore packages that are not installed
+	apt-get remove -y --purge \
+		mysql-server mysql-client mysql-common \
+		mysql-server-core-8.0 mysql-client-core-8.0 \
+		mysql-server-8.0 mysql-client-8.0 \
+		2>/dev/null || true
+	apt-get autoremove -y 2>/dev/null || true
+	# Ensure nothing is still bound to the DB port
+	if command -v fuser >/dev/null 2>&1; then
+		fuser -k 3306/tcp 2>/dev/null || true
 	fi
 }
 
@@ -367,9 +393,12 @@ SQL
 	# Credentials file still records a generated value; on Ubuntu, prefer:
 	#   sudo mariadb
 	# (unix_socket) rather than password login for system root.
+	local sql_out=""
+	local sql_ec=0
 	if [[ "$FORCE" == true ]]; then
 		info "Force mode: DROP + recreate WordPress database ${WP_DB_NAME}"
-		mariadb_socket <<SQL
+		sql_out=$(
+			mariadb_socket <<SQL 2>&1
 DROP DATABASE IF EXISTS \`${WP_DB_NAME}\`;
 CREATE DATABASE \`${WP_DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '${WP_DB_USER}'@'localhost' IDENTIFIED BY '${WP_DB_PASSWORD}';
@@ -377,15 +406,24 @@ ALTER USER '${WP_DB_USER}'@'localhost' IDENTIFIED BY '${WP_DB_PASSWORD}';
 GRANT ALL PRIVILEGES ON \`${WP_DB_NAME}\`.* TO '${WP_DB_USER}'@'localhost';
 FLUSH PRIVILEGES;
 SQL
+		) || sql_ec=$?
 	else
-		mariadb_socket <<SQL
+		sql_out=$(
+			mariadb_socket <<SQL 2>&1
 CREATE DATABASE IF NOT EXISTS \`${WP_DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '${WP_DB_USER}'@'localhost' IDENTIFIED BY '${WP_DB_PASSWORD}';
 ALTER USER '${WP_DB_USER}'@'localhost' IDENTIFIED BY '${WP_DB_PASSWORD}';
 GRANT ALL PRIVILEGES ON \`${WP_DB_NAME}\`.* TO '${WP_DB_USER}'@'localhost';
 FLUSH PRIVILEGES;
 SQL
+		) || sql_ec=$?
 	fi
+	if [[ "$sql_ec" -ne 0 ]]; then
+		error "MariaDB WordPress DB setup failed (exit ${sql_ec})"
+		[[ -n "$sql_out" ]] && error "MariaDB said: $(scrub_secrets "$sql_out")"
+		exit 1
+	fi
+	success "WordPress database ${WP_DB_NAME} ready"
 }
 
 default_htaccess() {
@@ -537,12 +575,18 @@ main() {
 
 	export DEBIAN_FRONTEND=noninteractive
 	export NEEDRESTART_MODE=a
-	# GitHub runners / some images ship MySQL — remove it so MariaDB can install cleanly
-	if dpkg -l mysql-server 2>/dev/null | grep -q '^ii'; then
-		warn "Removing conflicting mysql-server package..."
-		run_cmd systemctl stop mysql || true
-		run_cmd apt-get remove -y --purge mysql-server mysql-client || true
-		run_cmd apt-get autoremove -y || true
+	purge_conflicting_mysql
+	# Low-memory InnoDB before first MariaDB start on CI
+	if is_ci && [[ "$DRY_RUN" != true ]]; then
+		info "CI: pre-seeding low-memory MariaDB settings"
+		mkdir -p /etc/mysql/mariadb.conf.d
+		cat >/etc/mysql/mariadb.conf.d/99-swiftweb-ci.cnf <<'EOF'
+[mysqld]
+innodb_buffer_pool_size=64M
+key_buffer_size=8M
+max_connections=30
+performance_schema=OFF
+EOF
 	fi
 	info "Installing MariaDB..."
 	run_cmd apt-get install -y mariadb-server
@@ -553,19 +597,6 @@ main() {
 			error "Neither mariadb nor mysql became active"
 			systemctl status mariadb --no-pager || systemctl status mysql --no-pager || true
 			exit 1
-		fi
-		# Shrink InnoDB buffer on CI runners so tar/WP-CLI are less likely to OOM
-		if is_ci; then
-			info "CI: applying low-memory MariaDB settings"
-			cat >/etc/mysql/mariadb.conf.d/99-swiftweb-ci.cnf <<'EOF' || true
-[mysqld]
-innodb_buffer_pool_size=64M
-key_buffer_size=8M
-max_connections=30
-performance_schema=OFF
-EOF
-			systemctl restart mariadb 2>/dev/null || systemctl restart mysql 2>/dev/null || true
-			sleep 2
 		fi
 		# Wait until the unix socket actually accepts queries (service "active" is not enough)
 		local ready=0
