@@ -120,21 +120,26 @@ run_wp() {
 		return 0
 	fi
 	log_cmd "wp $*"
-	if id www-data &>/dev/null; then
-		sudo -u www-data -- "$WP_BIN" --path="$WP_PATH" "$@"
+	# CI runners OOM on chown -R of the full tree; --allow-root avoids needing www-data ownership
+	if is_ci || ! id www-data &>/dev/null; then
+		if is_ci; then
+			"$WP_BIN" --allow-root --path="$WP_PATH" "$@"
+		else
+			warn "www-data missing — falling back to --allow-root"
+			"$WP_BIN" --allow-root --path="$WP_PATH" "$@"
+		fi
 	else
-		warn "www-data missing — falling back to --allow-root"
-		"$WP_BIN" --allow-root --path="$WP_PATH" "$@"
+		sudo -u www-data -- "$WP_BIN" --path="$WP_PATH" "$@"
 	fi
 }
 
 wp_is_installed() {
 	[[ -f "$WP_PATH/wp-config.php" ]] || return 1
 	[[ -x "$WP_BIN" ]] || return 1
-	if id www-data &>/dev/null; then
-		sudo -u www-data -- "$WP_BIN" --path="$WP_PATH" core is-installed >/dev/null 2>&1
-	else
+	if is_ci || ! id www-data &>/dev/null; then
 		"$WP_BIN" --allow-root --path="$WP_PATH" core is-installed >/dev/null 2>&1
+	else
+		sudo -u www-data -- "$WP_BIN" --path="$WP_PATH" core is-installed >/dev/null 2>&1
 	fi
 }
 
@@ -434,10 +439,10 @@ verify_site() {
 		return 0
 	fi
 	local installed=false
-	if id www-data &>/dev/null; then
-		sudo -u www-data -- "$WP_BIN" --path="$WP_PATH" core is-installed >/dev/null 2>&1 && installed=true
-	else
+	if is_ci || ! id www-data &>/dev/null; then
 		"$WP_BIN" --allow-root --path="$WP_PATH" core is-installed >/dev/null 2>&1 && installed=true
+	else
+		sudo -u www-data -- "$WP_BIN" --path="$WP_PATH" core is-installed >/dev/null 2>&1 && installed=true
 	fi
 	if [[ "$installed" != true ]]; then
 		error "VERIFICATION FAILED: wp core is-installed reports NOT installed"
@@ -599,11 +604,12 @@ EOF
 	info "Writing wp-config.php..."
 	if [[ "$DRY_RUN" != true ]]; then
 		run_cmd cp "$WP_PATH/wp-config-sample.php" "$WP_PATH/wp-config.php"
-		run_cmd chown -R www-data:www-data "$WP_PATH"
 		if is_ci; then
-			# Full tree chmod -R has OOM'd GitHub runners; ownership is enough for WP-CLI
-			info "CI: skipping recursive chmod (chown only)"
+			info "CI: light permissions (skip chown -R of full tree)"
+			chmod -R a+rX "$WP_PATH" 2>/dev/null || true
+			chmod -R u+w "$WP_PATH/wp-content" 2>/dev/null || true
 		else
+			run_cmd chown -R www-data:www-data "$WP_PATH"
 			run_cmd chmod -R u=rwX,g=rX,o=rX "$WP_PATH"
 		fi
 
@@ -625,7 +631,7 @@ EOF
 	fi
 
 	if [[ "$DRY_RUN" != true ]]; then
-		if ! sudo -u www-data -- "$WP_BIN" --path="$WP_PATH" core is-installed >/dev/null 2>&1; then
+		if ! wp_is_installed; then
 			info "Running wp core install (as www-data)..."
 			run_wp core install \
 				--url="$SITE_URL" \
