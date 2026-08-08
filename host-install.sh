@@ -321,11 +321,19 @@ place_wordpress_files() {
 	if [[ "$restarted_db" == true ]]; then
 		info "CI: restarting database after file placement"
 		systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null || true
-		local i
-		for ((i = 0; i < 30; i++)); do
-			mariadb_socket <<<"SELECT 1;" >/dev/null 2>&1 && break
+		local i ready=0
+		for ((i = 0; i < 60; i++)); do
+			if mariadb_socket <<<"SELECT 1;" >/dev/null 2>&1; then
+				ready=1
+				break
+			fi
 			sleep 1
 		done
+		[[ "$ready" -eq 1 ]] || {
+			error "Database did not accept connections after file placement"
+			exit 1
+		}
+		success "Database ready after file placement"
 	fi
 
 	clear_default_indexes "$WP_PATH"
@@ -592,8 +600,12 @@ EOF
 	if [[ "$DRY_RUN" != true ]]; then
 		run_cmd cp "$WP_PATH/wp-config-sample.php" "$WP_PATH/wp-config.php"
 		run_cmd chown -R www-data:www-data "$WP_PATH"
-		# chmod -R is far cheaper than find -exec on large WP trees (CI OOM risk)
-		run_cmd chmod -R u=rwX,g=rX,o=rX "$WP_PATH"
+		if is_ci; then
+			# Full tree chmod -R has OOM'd GitHub runners; ownership is enough for WP-CLI
+			info "CI: skipping recursive chmod (chown only)"
+		else
+			run_cmd chmod -R u=rwX,g=rX,o=rX "$WP_PATH"
+		fi
 
 		run_wp config set DB_NAME "$WP_DB_NAME" --skip-check
 		run_wp config set DB_USER "$WP_DB_USER" --skip-check
