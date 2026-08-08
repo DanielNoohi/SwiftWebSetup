@@ -94,17 +94,22 @@ jobs:
             echo "no log file"
           fi
           if [ "$ec" -ne 0 ]; then
+            echo "::error::host-install exit=$ec"
+            # Single multi-line annotation (more reliable than many small ones)
             {
-              echo "host-install exit=$ec"
-              echo "---- free/df/dmesg ----"
-              free -m 2>/dev/null || true
-              df -h /var/www /var/tmp /tmp 2>/dev/null || true
-              dmesg -T 2>/dev/null | grep -iE 'oom|killed process' | tail -n 8 || true
-              echo "---- log hits ----"
-              sudo grep -E '\[ERROR\]|Command failed|VERIFICATION|Placing|Placed|Extracting|SUCCESS' /var/log/swiftwebsetup-web-install.log 2>/dev/null | tail -n 20
-              echo "---- tail ----"
-              sudo tail -n 25 /var/log/swiftwebsetup-web-install.log 2>/dev/null
-            } | while IFS= read -r line; do echo "::error::$line"; done
+              echo "log_bytes=$(sudo wc -c /var/log/swiftwebsetup-web-install.log 2>/dev/null | awk '{print $1}')"
+              echo "extract_ls:"
+              sudo ls -la /var/www/swiftweb-extract 2>/dev/null || echo "(no extract dir)"
+              sudo ls -la /var/www/html 2>/dev/null | head -n 5 || echo "(no html dir)"
+              echo "--- log ---"
+              sudo tail -n 40 /var/log/swiftwebsetup-web-install.log 2>/dev/null || echo "(no log)"
+            } > /tmp/swiftweb-ci-host-fail.txt
+            python3 - <<'PY'
+from pathlib import Path
+text = Path("/tmp/swiftweb-ci-host-fail.txt").read_text(errors="replace")
+# GitHub annotations encode newlines as %0A
+print("::error::" + text.replace("%", "%25").replace("\r", "").replace("\n", "%0A"))
+PY
           fi
           exit $ec
         timeout-minutes: 30

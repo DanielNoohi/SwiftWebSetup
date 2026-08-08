@@ -532,7 +532,7 @@ main() {
 	fi
 	tune_php_for_wordpress
 
-	# Fetch WordPress before MariaDB so CI runners are not at peak RAM during extract
+	# Fetch WordPress after Apache packages so /var/www layout is stable; before MariaDB for RAM
 	download_wordpress
 
 	export DEBIAN_FRONTEND=noninteractive
