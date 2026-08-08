@@ -245,28 +245,36 @@ download_wordpress() {
 		info "[DRY-RUN] Download + extract WordPress core (skipped)"
 		return 0
 	fi
-	run_cmd rm -rf /tmp/swiftweb-wp
-	run_cmd mkdir -p /tmp/swiftweb-wp
+	# Prefer a disk-backed path: /tmp is often tmpfs on cloud runners and OOMs during extract
+	local extract_root="${SWIFTWEB_EXTRACT_ROOT:-/var/tmp/swiftweb-wp}"
+	if is_ci; then
+		extract_root="/var/tmp/swiftweb-wp"
+	fi
+	run_cmd rm -rf "$extract_root"
+	run_cmd mkdir -p "$extract_root"
 
 	info "Fetching WordPress tarball..."
-	run_cmd wget -q -O /tmp/latest.tar.gz https://wordpress.org/latest.tar.gz
-	if ! gzip -t /tmp/latest.tar.gz 2>/dev/null; then
+	run_cmd wget -q -O /var/tmp/latest.tar.gz https://wordpress.org/latest.tar.gz
+	if ! gzip -t /var/tmp/latest.tar.gz 2>/dev/null; then
 		error "Downloaded file is not a valid gzip tarball"
 		exit 1
 	fi
-	info "Extracting WordPress archive..."
-	if ! tar -xzf /tmp/latest.tar.gz -C /tmp/swiftweb-wp; then
+	info "Extracting WordPress archive to ${extract_root}..."
+	if ! tar -xzf /var/tmp/latest.tar.gz -C "$extract_root"; then
 		error "tar extract failed (check free memory/disk)"
 		free -m || true
-		df -h /tmp || true
+		df -h /var/tmp || true
 		exit 1
 	fi
-	rm -f /tmp/latest.tar.gz 2>/dev/null || true
+	rm -f /var/tmp/latest.tar.gz 2>/dev/null || true
 
-	[[ -f /tmp/swiftweb-wp/wordpress/wp-settings.php ]] || {
+	[[ -f "${extract_root}/wordpress/wp-settings.php" ]] || {
 		error "WordPress extract missing wp-settings.php"
 		exit 1
 	}
+	# Stash path for place_wordpress_files
+	SWIFTWEB_WP_EXTRACT="${extract_root}/wordpress"
+	export SWIFTWEB_WP_EXTRACT
 	success "WordPress core extracted"
 }
 
@@ -299,44 +307,22 @@ place_wordpress_files() {
 	fi
 	run_cmd mkdir -p "$(dirname "$WP_PATH")"
 
+	local src="${SWIFTWEB_WP_EXTRACT:-/var/tmp/swiftweb-wp/wordpress}"
+	[[ -d "$src" ]] || src="/tmp/swiftweb-wp/wordpress"
+	[[ -d "$src" ]] || {
+		error "WordPress extract not found at $src"
+		exit 1
+	}
+
 	# Same-filesystem directory rename is cheap; fall back to cp across devices
 	rm -rf "$WP_PATH"
-	if mv /tmp/swiftweb-wp/wordpress "$WP_PATH" 2>/dev/null; then
-		info "Placed WordPress via mv"
-		rm -rf /tmp/swiftweb-wp 2>/dev/null || true
+	if mv "$src" "$WP_PATH" 2>/dev/null; then
+		info "Placed WordPress via mv from $src"
+		rm -rf "$(dirname "$src")" 2>/dev/null || true
 	else
-		# cp is memory-heavy — pause DB on CI first
-		local restarted_db=false
-		if is_ci; then
-			if systemctl is-active --quiet mariadb 2>/dev/null; then
-				info "CI: pausing MariaDB during WordPress copy"
-				systemctl stop mariadb 2>/dev/null || true
-				restarted_db=true
-			elif systemctl is-active --quiet mysql 2>/dev/null; then
-				info "CI: pausing MySQL during WordPress copy"
-				systemctl stop mysql 2>/dev/null || true
-				restarted_db=true
-			fi
-		fi
 		run_cmd mkdir -p "$WP_PATH"
-		run_cmd cp -a /tmp/swiftweb-wp/wordpress/. "$WP_PATH/"
-		rm -rf /tmp/swiftweb-wp 2>/dev/null || true
-		if [[ "$restarted_db" == true ]]; then
-			info "CI: restarting database after copy"
-			systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null || true
-			local i ready=0
-			for ((i = 0; i < 60; i++)); do
-				if mariadb_socket <<<"SELECT 1;" >/dev/null 2>&1; then
-					ready=1
-					break
-				fi
-				sleep 1
-			done
-			[[ "$ready" -eq 1 ]] || {
-				error "Database did not accept connections after copy"
-				exit 1
-			}
-		fi
+		run_cmd cp -a "$src"/. "$WP_PATH/"
+		rm -rf "$(dirname "$src")" 2>/dev/null || true
 	fi
 
 	clear_default_indexes "$WP_PATH"
